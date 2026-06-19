@@ -1,20 +1,13 @@
-import React from 'react';
-import AgentDashboard from '../components/AgentDashboard';
-import CustomerDashboard from '../components/CustomerDashboard';
-import SuperuserDashboard from '../components/SuperuserDashboard';
+import React from "react";
+import AgentDashboard from "../components/AgentDashboard";
+import SuperuserDashboard from "../components/SuperuserDashboard";
+import CompanyDashboard from "../components/CompanyDashboard";
 
 const Dashboard = ({ user, onLogout }) => {
-  // Render different dashboard based on user role
-  if (user.role === 'superuser') {
-    return <SuperuserDashboard user={user} onLogout={onLogout} />;
-  } else if (user.role === 'customer') {
-    return <CustomerDashboard user={user} onLogout={onLogout} />;
-  } else if (user.role === 'agent') {
-    return <AgentDashboard user={user} onLogout={onLogout} />;
-  } else {
-    // Fallback for unknown roles
-    return <AgentDashboard user={user} onLogout={onLogout} />;
-  }
+  if (user.role === "superuser") return <SuperuserDashboard user={user} onLogout={onLogout} />;
+  if (user.role === "company") return <CompanyDashboard user={user} onLogout={onLogout} />;
+  if (user.role === "agent") return <AgentDashboard user={user} onLogout={onLogout} />;
+  return <AgentDashboard user={user} onLogout={onLogout} />;
 };
 
 export default Dashboard;
