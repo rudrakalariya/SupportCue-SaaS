@@ -1,146 +1,111 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
-import { io } from 'socket.io-client';
-import { Send, X, MessageCircle, User, Bot } from 'lucide-react';
-import { chatAPI } from '../api/api';
+import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { io } from "socket.io-client";
+import { Send, X, MessageCircle, User, Bot, Shield, Sparkles } from "lucide-react";
+import { chatAPI, customerAPI } from "../api/api";
 
-const ChatWidget = ({ customerId, customerName }) => {
+const ChatWidget = ({ companyId }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState("");
   const [chatId, setChatId] = useState(null);
   const [socket, setSocket] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
-  const [chatMode, setChatMode] = useState('ai');
+  const [chatMode, setChatMode] = useState("ai");
   const [assignedAgent, setAssignedAgent] = useState(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
 
-  // Initialize chat and socket connection
   useEffect(() => {
-    if (isOpen && customerId) {
-      initializeChat();
-    }
-  }, [isOpen, customerId]);
+    if (isOpen) initializeChat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
-  // Auto-scroll to bottom when new messages arrive
   const scrollToBottom = () => {
-    const container = messagesContainerRef.current;
     const anchor = messagesEndRef.current;
-    if (!container || !anchor) return;
+    if (!anchor) return;
     requestAnimationFrame(() => {
-      anchor.scrollIntoView({ block: 'end' });
-      setTimeout(() => anchor.scrollIntoView({ block: 'end' }), 30);
+      anchor.scrollIntoView({ block: "end" });
+      setTimeout(() => anchor.scrollIntoView({ block: "end" }), 30);
     });
   };
 
-  useLayoutEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useLayoutEffect(() => { scrollToBottom(); }, [messages]);
 
   const initializeChat = async () => {
     try {
-      // Create or get existing chat
-      const response = await chatAPI.createChat({
-        customerId: customerId,
-        customerName: customerName
-      });
+      let userId = localStorage.getItem("support_user_id");
+      if (!userId) {
+        userId = crypto.randomUUID();
+        localStorage.setItem("support_user_id", userId);
+      }
+
+      const initResponse = await customerAPI.init({ userId, companyId });
+      const resolvedCompanyId = initResponse.data.companyId;
+
+      const response = await chatAPI.createChat({ userId, companyId: resolvedCompanyId });
       const { chat } = response.data;
       setChatId(chat._id);
       setChatMode(chat.mode);
       setAssignedAgent(chat.assignedAgentId);
-      
-      // Set initial messages
+
       if (chat.messages && chat.messages.length > 0) {
         setMessages(chat.messages);
         scrollToBottom();
-      } else {
-        // If no messages, add the initial AI message
-        if (chat.mode === 'ai' && chat.status === 'open') {
-          setMessages([{
-            senderRole: 'ai',
-            text: 'Hello! I\'m your AI support assistant. How can I help you today!',
-            createdAt: new Date()
-          }]);
-        }
+      } else if (chat.mode === "ai" && chat.status === "open") {
+        setMessages([
+          {
+            senderRole: "ai",
+            text: "Hi! I'm your AI support assistant. Ask me anything — and just say \"talk to a human\" any time you'd like an agent.",
+            createdAt: new Date(),
+          },
+        ]);
       }
 
-      // Initialize socket connection
-      const newSocket = io('http://localhost:5000', { transports: ['websocket'], reconnection: true });
+      const newSocket = io("http://localhost:5000", { transports: ["websocket"], reconnection: true });
       setSocket(newSocket);
 
-      // Join chat room
-      newSocket.emit('joinChat', { chatId: chat._id, userId: customerId });
+      newSocket.on("connect", () => newSocket.emit("joinChat", { chatId: chat._id, userId }));
+      if (newSocket.connected) newSocket.emit("joinChat", { chatId: chat._id, userId });
 
-      // Receive chat history from server (backup to API fetch)
-      newSocket.on('chatHistory', ({ messages: history }) => {
-        if (Array.isArray(history)) {
-          setMessages(history);
-          scrollToBottom();
-        }
+      newSocket.on("chatHistory", ({ messages: history }) => {
+        if (Array.isArray(history)) { setMessages(history); scrollToBottom(); }
       });
 
-      // Listen for new messages
-      newSocket.on('receiveMessage', ({ message }) => {
-        setMessages(prev => {
-          const next = [...prev, message];
-          return next;
-        });
+      newSocket.on("receiveMessage", ({ message }) => {
+        setMessages((prev) => [...prev, message]);
         scrollToBottom();
       });
 
-      // Listen for chat takeover
-      newSocket.on('chatTaken', ({ agentName, mode }) => {
+      newSocket.on("chatTaken", ({ agentName, mode }) => {
         setChatMode(mode);
         setAssignedAgent(agentName);
-        // System message for takeover is sent via receiveMessage; no duplicate append here
       });
 
-      // Listen for typing indicators
-      newSocket.on('userTyping', ({ userId, isTyping }) => {
-        if (userId !== customerId) {
-          setIsTyping(isTyping);
-        }
+      newSocket.on("userTyping", ({ userId: typingUserId, isTyping }) => {
+        const currentUserId = localStorage.getItem("support_user_id");
+        if (typingUserId !== currentUserId) setIsTyping(isTyping);
       });
 
-      // Listen for AI typing indicators
-      newSocket.on('aiTyping', ({ chatId: socketChatId, isTyping }) => {
-        if (socketChatId === chat._id) {
-          setIsTyping(isTyping);
-        }
+      newSocket.on("aiTyping", ({ chatId: socketChatId, isTyping }) => {
+        if (socketChatId === chat._id) setIsTyping(isTyping);
       });
 
-      // Listen for errors
-      newSocket.on('error', ({ message }) => {
-        console.error('Socket error:', message);
-      });
-
+      newSocket.on("error", ({ message }) => console.error("Socket error:", message));
     } catch (error) {
-      console.error('Failed to initialize chat:', error);
+      console.error("Failed to initialize chat:", error);
     }
   };
 
-  const sendMessage = async () => {
+  const sendMessage = () => {
     if (!inputText.trim() || !socket || !chatId) return;
-
-    const messageData = {
-      chatId,
-      senderId: customerId,
-      senderRole: 'customer',
-      text: inputText.trim()
-    };
-
-    // Send message via socket
-    socket.emit('sendMessage', messageData);
-
-    // Clear input
-    setInputText('');
-
-    // Send typing indicator
-    socket.emit('typing', { chatId, userId: customerId, isTyping: false });
+    const userId = localStorage.getItem("support_user_id");
+    socket.emit("sendMessage", { chatId, senderId: userId, senderRole: "customer", text: inputText.trim() });
+    setInputText("");
+    socket.emit("typing", { chatId, userId, isTyping: false });
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
@@ -148,7 +113,8 @@ const ChatWidget = ({ customerId, customerName }) => {
 
   const handleTyping = () => {
     if (socket && chatId) {
-      socket.emit('typing', { chatId, userId: customerId, isTyping: true });
+      const userId = localStorage.getItem("support_user_id");
+      socket.emit("typing", { chatId, userId, isTyping: true });
     }
   };
 
@@ -160,141 +126,124 @@ const ChatWidget = ({ customerId, customerName }) => {
     setIsOpen(false);
     setMessages([]);
     setChatId(null);
-    setChatMode('ai');
+    setChatMode("ai");
     setAssignedAgent(null);
   };
 
-  const formatTime = (date) => {
-    return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+  const formatTime = (date) =>
+    new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-  const getMessageStyle = (senderRole) => {
-    if (senderRole === 'customer') {
-      return 'bg-primary-600 text-white ml-auto';
-    } else if (senderRole === 'ai') {
-      return 'bg-gray-200 text-gray-800';
-    } else {
-      return 'bg-green-600 text-white';
-    }
-  };
-
-  const getSenderIcon = (senderRole) => {
-    if (senderRole === 'customer') {
-      return <User className="h-4 w-4" />;
-    } else if (senderRole === 'ai') {
-      return <Bot className="h-4 w-4" />;
-    } else {
-      return <User className="h-4 w-4" />;
-    }
-  };
+  const isHuman = chatMode === "human";
 
   return (
     <>
-      {/* Chat Widget Button */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 bg-primary-600 text-white p-4 rounded-full shadow-lg hover:bg-primary-700 transition-colors duration-200 z-50"
-          title="Open chat"
+          className="fixed bottom-6 right-6 w-14 h-14 rounded-full z-50 flex items-center justify-center shadow-2xl btn-accent transition-transform hover:scale-105 active:scale-95"
+          aria-label="Open chat"
         >
           <MessageCircle className="h-6 w-6" />
         </button>
       )}
 
-      {/* Chat Widget */}
       {isOpen && (
-        <div className="fixed bottom-6 right-6 w-96 h-[500px] bg-white rounded-lg shadow-xl border border-gray-200 z-50 flex flex-col">
+        <div
+          className="glass-strong fixed bottom-6 right-6 w-[380px] h-[540px] rounded-3xl z-50 flex flex-col overflow-hidden animate-scale-in"
+          style={{ transformOrigin: "bottom right" }}
+        >
           {/* Header */}
-          <div className="bg-primary-600 text-white p-4 rounded-t-lg flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold">
-                {chatMode === 'ai' ? 'AI Support' : 'Human Support'}
-              </h3>
-              {assignedAgent && (
-                <p className="text-sm text-primary-100">
-                  Agent: {assignedAgent.name || assignedAgent}
+          <div
+            className="px-5 py-4 flex items-center justify-between border-b border-white/10"
+            style={{
+              background: isHuman
+                ? "linear-gradient(135deg, rgba(139,92,246,0.18), rgba(139,92,246,0.04))"
+                : "linear-gradient(135deg, rgba(34,211,238,0.18), rgba(34,211,238,0.04))",
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isHuman ? "avatar-human" : "avatar-ai"}`}>
+                {isHuman ? <Shield className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+              </div>
+              <div>
+                <h3 className="font-semibold text-[14px] text-slate-100 tracking-tight">
+                  {isHuman ? "Human Support" : "AI Support"}
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  {isHuman
+                    ? `${assignedAgent?.name || assignedAgent || "Agent"} is here`
+                    : "Online · usually replies instantly"}
                 </p>
-              )}
+              </div>
             </div>
-            <button
-              onClick={closeChat}
-              className="text-white hover:text-gray-200 transition-colors"
-            >
-              <X className="h-5 w-5" />
+            <button onClick={closeChat} className="text-slate-400 hover:text-slate-100 transition-colors p-1.5 rounded-lg hover:bg-white/10" aria-label="Close chat">
+              <X className="h-4 w-4" />
             </button>
           </div>
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3" ref={messagesContainerRef}>
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                className={`flex items-start space-x-2 ${
-                  message.senderRole === 'customer' ? 'justify-end' : 'justify-start'
-                }`}
-              >
-                {message.senderRole !== 'customer' && (
-                  <div className="flex-shrink-0 w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
-                    {getSenderIcon(message.senderRole)}
-                  </div>
-                )}
-                <div
-                  className={`max-w-xs px-3 py-2 rounded-lg ${
-                    getMessageStyle(message.senderRole)
-                  }`}
-                >
-                  <p className="text-sm">{message.text}</p>
-                  <p className="text-xs opacity-70 mt-1">
-                    {formatTime(message.createdAt)}
-                  </p>
-                </div>
-              </div>
-            ))}
-            
-            {isTyping && (
-              <div className="flex items-start space-x-2">
-                <div className="flex-shrink-0 w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
-                  <Bot className="h-4 w-4" />
-                </div>
-                <div className="bg-gray-200 text-gray-800 px-3 py-2 rounded-lg">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-gray-600">AI is typing...</span>
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            {messages.map((message, index) => {
+              const isCustomer = message.senderRole === "customer";
+              const isAI = message.senderRole === "ai";
+              const bubble = isCustomer ? "bubble-self" : isAI ? "bubble-ai" : "bubble-human";
+              return (
+                <div key={index} className={`flex items-end gap-2 animate-fade-slide ${isCustomer ? "justify-end" : "justify-start"}`}>
+                  {!isCustomer && (
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${isAI ? "avatar-ai" : "avatar-human"}`}>
+                      {isAI ? <Bot className="h-3 w-3" /> : <Shield className="h-3 w-3" />}
                     </div>
+                  )}
+                  <div className={`max-w-[260px] px-3 py-2 rounded-2xl ${bubble} ${isCustomer ? "rounded-br-md" : "rounded-bl-md"}`}>
+                    <p className="text-[13px] leading-relaxed">{message.text}</p>
+                    <p className="text-[10px] opacity-60 mt-0.5">{formatTime(message.createdAt)}</p>
+                  </div>
+                </div>
+              );
+            })}
+
+            {isTyping && (
+              <div className="flex items-end gap-2 animate-fade-slide">
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isHuman ? "avatar-human" : "avatar-ai"}`}>
+                  {isHuman ? <Shield className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
+                </div>
+                <div className={`${isHuman ? "bubble-human" : "bubble-ai"} px-3 py-2.5 rounded-2xl rounded-bl-md`}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] opacity-80 mr-1">{isHuman ? "Typing" : "AI is thinking"}</span>
+                    <span className="w-1 h-1 rounded-full animate-pulse-soft" style={{ background: "currentColor" }} />
+                    <span className="w-1 h-1 rounded-full animate-pulse-soft" style={{ background: "currentColor", animationDelay: "0.2s" }} />
+                    <span className="w-1 h-1 rounded-full animate-pulse-soft" style={{ background: "currentColor", animationDelay: "0.4s" }} />
                   </div>
                 </div>
               </div>
             )}
-            
-            {/* Spacer ensures last message isn't obscured */}
-            <div ref={messagesEndRef} style={{ height: '1px' }} />
+            <div ref={messagesEndRef} style={{ height: "1px" }} />
           </div>
 
           {/* Input */}
-          <div className="p-4 border-t border-gray-200">
-            <div className="flex space-x-2">
+          <div className="p-3 border-t border-white/10">
+            <div className="glass rounded-2xl flex items-center gap-1.5 p-1.5">
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyPress={handleKeyPress}
                 onInput={handleTyping}
-                placeholder="Type your message..."
-                className="flex-1 input"
-                disabled={false}
+                placeholder="Type a message…"
+                className="flex-1 bg-transparent px-3 py-1.5 text-[13px] text-slate-100 placeholder:text-slate-500 outline-none"
               />
               <button
                 onClick={sendMessage}
                 disabled={!inputText.trim()}
-                className="btn btn-primary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn-accent rounded-xl w-9 h-9 flex items-center justify-center disabled:opacity-40"
+                aria-label="Send"
               >
-                <Send className="h-4 w-4" />
+                <Send className="h-3.5 w-3.5" />
               </button>
             </div>
-
+            <p className="text-[10px] text-slate-500 text-center mt-2 inline-flex items-center gap-1 w-full justify-center">
+              <Sparkles className="h-2.5 w-2.5" /> Try saying "talk to a human"
+            </p>
           </div>
         </div>
       )}
