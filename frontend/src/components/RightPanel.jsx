@@ -1,139 +1,104 @@
-import React, { useState } from 'react';
-import { User, Mail, Calendar, MessageCircle, Shield, CheckCircle } from 'lucide-react';
+import React from "react";
+import { User, Mail, MessageCircle, CheckCircle, Bot, Shield } from "lucide-react";
 
 const RightPanel = ({ selectedChat, currentUser, onCloseChat }) => {
-  const [loading, setLoading] = useState(false);
-
   if (!selectedChat) {
     return (
-      <div className="w-80 bg-white border-l border-gray-200 flex items-center justify-center">
-        <div className="text-center text-gray-500">
-          <User className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-          <p>Select a chat to view details</p>
+      <div className="w-80 glass-subtle flex items-center justify-center text-center px-6 rounded-none border-y-0 border-r-0">
+        <div>
+          <User className="h-10 w-10 mx-auto mb-3 text-slate-600 opacity-50" />
+          <p className="text-sm text-slate-500">Select a chat to view customer context</p>
         </div>
       </div>
     );
   }
 
-  // Close chat functionality removed per requirements
-
   const formatDate = (date) => {
     const d = date ? new Date(date) : null;
-    if (!d || Number.isNaN(d.getTime())) return '-';
-    return d.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+    if (!d || Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString("en-US", {
+      year: "numeric", month: "long", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
     });
   };
 
-  const formatDurationMinutes = (start) => {
-    const s = start ? new Date(start) : null;
-    if (!s || Number.isNaN(s.getTime())) return '-';
-    const minutes = Math.floor((Date.now() - s.getTime()) / (1000 * 60));
-    if (!Number.isFinite(minutes) || minutes < 0) return '-';
-    return `${minutes} minutes`;
-  };
-
-  // Frustration indicators removed
+  const isAI = selectedChat.mode === "ai";
 
   return (
-    <div className="w-80 bg-white border-l border-gray-200 flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-200">
-        <h2 className="text-lg font-semibold text-gray-900">Chat Details</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          {selectedChat.customer?.name || 'Customer'}
-        </p>
+    <div className="w-80 glass-subtle flex flex-col rounded-none border-y-0 border-r-0">
+      <div className="p-4 border-b border-white/10">
+        <h2 className="text-[15px] font-semibold tracking-tight">Context</h2>
+        <p className="text-[11px] text-slate-500 mt-0.5">{selectedChat.customer?.name || "Customer"}</p>
       </div>
 
-      {/* Customer Profile */}
-      <div className="p-4 border-b border-gray-200">
-        <h3 className="text-sm font-medium text-gray-900 mb-3">Customer Information</h3>
-        
-        <div className="space-y-3">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-              <User className="h-5 w-5 text-primary-600" />
+      {/* Customer card */}
+      <div className="p-4">
+        <div className="glass-card p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-11 h-11 rounded-full flex items-center justify-center avatar-customer">
+              <User className="h-4 w-4" />
             </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">
-                {selectedChat.customer?.name || 'Unknown'}
-              </p>
-              <p className="text-xs text-gray-500">Customer</p>
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold truncate">{selectedChat.customer?.name || "Unknown"}</p>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Customer</p>
             </div>
           </div>
-
-          <div className="flex items-center space-x-2 text-sm text-gray-600">
-            <Mail className="h-4 w-4" />
-            <span>{selectedChat.customer?.email || 'No email'}</span>
+          <div className="flex items-center gap-2 text-[12px] text-slate-400">
+            <Mail className="h-3.5 w-3.5" />
+            <span className="truncate">{selectedChat.customer?.email || "No email"}</span>
           </div>
-
-          {/* Removed Joined date */}
         </div>
       </div>
 
-      {/* Chat Status */}
-      <div className="p-4 border-b border-gray-200">
-        <h3 className="text-sm font-medium text-gray-900 mb-3">Chat Status</h3>
-        
-        <div className="space-y-3">
+      {/* Status */}
+      <div className="px-4 pb-4">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 px-1">Status</p>
+        <div className="glass-card p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600">Mode:</span>
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              selectedChat.mode === 'ai' 
-                ? 'bg-blue-100 text-blue-800' 
-                : 'bg-green-100 text-green-800'
-            }`}>
-              {selectedChat.mode === 'ai' ? 'AI Mode' : 'Human Mode'}
+            <span className="text-[12px] text-slate-400">Mode</span>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${isAI ? "badge-ai" : "badge-human"}`}>
+              {isAI ? <Bot className="h-3 w-3" /> : <Shield className="h-3 w-3" />}
+              {isAI ? "AI" : "HUMAN"}
             </span>
           </div>
-
           {selectedChat.assignedAgent && (
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Assigned Agent:</span>
-              <span className="text-sm font-medium text-gray-900">
-                {selectedChat.assignedAgent.name || 'Unknown'}
+              <span className="text-[12px] text-slate-400">Agent</span>
+              <span className="text-[12px] font-medium text-slate-200">
+                {selectedChat.assignedAgent.name || "Unknown"}
               </span>
             </div>
           )}
-
-          
         </div>
       </div>
 
-      {/* Chat Statistics */}
-      <div className="p-4 border-b border-gray-200">
-        <h3 className="text-sm font-medium text-gray-900 mb-3">Chat Statistics</h3>
-        
-        <div className="space-y-3">
+      {/* Stats */}
+      <div className="px-4 pb-4">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 px-1">Activity</p>
+        <div className="glass-card p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600">Total Messages:</span>
-            <span className="text-sm font-medium text-gray-900">
-              {selectedChat.messageCount || 0}
+            <span className="text-[12px] text-slate-400 flex items-center gap-1.5">
+              <MessageCircle className="h-3.5 w-3.5" /> Messages
             </span>
+            <span className="text-[13px] font-semibold">{selectedChat.messageCount || 0}</span>
           </div>
-
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600">Last Activity:</span>
-            <span className="text-sm text-gray-900">
-              {formatDate(selectedChat.lastInteraction)}
-            </span>
+            <span className="text-[12px] text-slate-400">Last activity</span>
+            <span className="text-[11px] text-slate-300">{formatDate(selectedChat.lastInteraction)}</span>
           </div>
-
-          {/* Removed Duration */}
         </div>
       </div>
 
-      {/* Actions removed */}
-
-      {/* Footer */}
-      <div className="mt-auto p-4 border-t border-gray-200">
-        <div className="text-xs text-gray-500 text-center">
-          <p>Chat ID: {selectedChat._id}</p>
-        </div>
+      {/* Actions */}
+      <div className="p-4 mt-auto">
+        <button
+          onClick={() => onCloseChat(selectedChat._id)}
+          className="w-full pill-success rounded-xl px-4 py-2.5 text-[13px] font-semibold inline-flex items-center justify-center gap-2 transition-all hover:brightness-110"
+        >
+          <CheckCircle className="h-3.5 w-3.5" />
+          Finish Chat
+        </button>
+        <p className="text-[10px] text-slate-600 text-center mt-3 font-mono">{selectedChat._id}</p>
       </div>
     </div>
   );
