@@ -1,209 +1,358 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { MessageCircle, Users, Shield, Bot, ArrowRight } from 'lucide-react';
-import ChatWidget from '../components/ChatWidget';
+import React from "react";
+import { Link } from "react-router-dom";
+import {
+  MessageCircle, Users, Shield, Bot, ArrowRight, ShieldCheck,
+  Zap, Sparkles, LogOut, ArrowUpRight,
+} from "lucide-react";
+import ChatWidget from "../components/ChatWidget";
 
 const Home = ({ user, onLogout }) => {
-  const [demoCustomerId] = useState('demo-customer-123');
-  const [demoCustomerName] = useState('Demo Customer');
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 flex items-center">
-                <MessageCircle className="h-8 w-8 text-primary-600" />
-                <span className="ml-2 text-xl font-bold text-gray-900">SupportCue</span>
-              </div>
+    <div className="min-h-screen text-slate-100">
+      {/* Sticky frosted nav */}
+      <nav className="glass sticky top-0 z-30 rounded-none border-x-0 border-t-0">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "var(--gradient-accent)" }}>
+              <ShieldCheck className="h-4 w-4 text-white" />
             </div>
-            
-            <div className="flex items-center space-x-4">
-              {user ? (
-                <>
-                  <span className="text-sm text-gray-700">
-                    Welcome, {user.name}
-                  </span>
-                  <Link
-                    to={'/dashboard'}
-                    className="btn btn-primary"
-                  >
-                    Go to Dashboard
-                  </Link>
-                  <button
-                    onClick={onLogout}
-                    className="btn btn-secondary"
-                  >
-                    Logout
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Link
-                    to="/login"
-                    className="btn btn-secondary"
-                  >
-                    Sign In
-                  </Link>
-                  <button
-                    onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}
-                    className="btn btn-primary"
-                  >
-                    Chat with AI
-                  </button>
-                </>
-              )}
-            </div>
+            <span className="text-[15px] font-bold tracking-tight">SupportCue</span>
+          </Link>
+
+          <div className="hidden md:flex items-center gap-7 text-[13px] text-slate-400">
+            <a href="#features" className="hover:text-slate-100 transition-colors">Features</a>
+            <a href="#how" className="hover:text-slate-100 transition-colors">How it works</a>
+            <a href="#demo" className="hover:text-slate-100 transition-colors">Live demo</a>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {user ? (
+              <>
+                <span className="hidden sm:inline text-[13px] text-slate-400">Hi, {user.name}</span>
+                <Link to="/dashboard" className="btn-accent rounded-xl px-3.5 py-2 text-[13px] inline-flex items-center gap-1.5">
+                  Dashboard <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+                <button onClick={onLogout} className="btn-ghost rounded-xl px-3 py-2 text-[13px] inline-flex items-center gap-1.5">
+                  <LogOut className="h-3.5 w-3.5" />
+                </button>
+              </>
+            ) : (
+              <>
+                <Link to="/login" className="btn-ghost rounded-xl px-3.5 py-2 text-[13px]">Sign in</Link>
+                <a href="#demo" className="btn-accent rounded-xl px-3.5 py-2 text-[13px] inline-flex items-center gap-1.5">
+                  Try the demo <ArrowRight className="h-3.5 w-3.5" />
+                </a>
+              </>
+            )}
           </div>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <div className="relative overflow-hidden">
-        <div className="max-w-7xl mx-auto">
-          <div className="relative z-10 pb-8 bg-gray-50 sm:pb-16 md:pb-20 lg:max-w-2xl lg:w-full lg:pb-28 xl:pb-32">
-            <main className="mt-10 mx-auto max-w-7xl px-4 sm:mt-12 sm:px-6 md:mt-16 lg:mt-20 lg:px-8 xl:mt-28">
-              <div className="sm:text-center lg:text-left">
-                <h1 className="text-4xl tracking-tight font-extrabold text-gray-900 sm:text-5xl md:text-6xl">
-                  <span className="block">SupportCue</span>
-                  <span className="block text-primary-600">AI Customer Support</span>
-                </h1>
-                <p className="mt-3 text-base text-gray-500 sm:mt-5 sm:text-lg sm:max-w-xl sm:mx-auto md:mt-5 md:text-xl lg:mx-0">
-                  Transform your customer support with intelligent AI that seamlessly transitions to human agents on request. 
-                  Provide instant responses and personalized assistance 24/7.
-                </p>
-                <div className="mt-5 sm:mt-8 sm:flex sm:justify-center lg:justify-start">
-                  {!user && (
-                    <>
-                      <div className="rounded-md shadow">
-                        <Link
-                          to="/register"
-                          className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 md:py-4 md:text-lg md:px-10"
-                        >
-                          Start Free Trial
-                          <ArrowRight className="ml-2 h-5 w-5" />
-                        </Link>
-                      </div>
-                      <div className="mt-3 sm:mt-0 sm:ml-3">
-                        <Link
-                          to="/login"
-                          className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-primary-700 bg-primary-100 hover:bg-primary-200 md:py-4 md:text-lg md:px-10"
-                        >
-                          Sign In
-                        </Link>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </main>
-          </div>
+      {/* Hero */}
+      <section className="relative overflow-hidden">
+        {/* Ambient glow */}
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          <div className="absolute -top-32 -left-20 w-[500px] h-[500px] rounded-full opacity-30 blur-3xl" style={{ background: "radial-gradient(circle, var(--mode-ai), transparent 70%)" }} />
+          <div className="absolute top-20 -right-32 w-[600px] h-[600px] rounded-full opacity-30 blur-3xl" style={{ background: "radial-gradient(circle, var(--accent-2), transparent 70%)" }} />
         </div>
-        <div className="lg:absolute lg:inset-y-0 lg:right-0 lg:w-1/2">
-          <div className="h-56 w-full bg-gradient-to-r from-primary-400 to-primary-600 sm:h-72 md:h-96 lg:w-full lg:h-full"></div>
-        </div>
-      </div>
 
-      {/* Features Section */}
-      <div className="py-12 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="lg:text-center">
-            <h2 className="text-base text-primary-600 font-semibold tracking-wide uppercase">Features</h2>
-            <p className="mt-2 text-3xl leading-8 font-extrabold tracking-tight text-gray-900 sm:text-4xl">
-              Everything you need for modern support
+        <div className="max-w-6xl mx-auto px-6 pt-20 pb-24 grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-12 items-center relative">
+          <div className="animate-fade-slide">
+            <div className="inline-flex items-center gap-1.5 glass-subtle rounded-full px-3 py-1.5 mb-6 text-[12px] text-slate-300">
+              <Sparkles className="h-3 w-3" style={{ color: "var(--mode-ai)" }} />
+              AI-first · human handoff in one tap
+            </div>
+            <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight leading-[1.05] mb-5">
+              Support that starts with{" "}
+              <span style={{
+                background: "linear-gradient(135deg, var(--mode-ai), var(--mode-human))",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}>
+                AI
+              </span>
+              <br />and stays human.
+            </h1>
+            <p className="text-[17px] text-slate-400 leading-relaxed mb-8 max-w-xl">
+              An AI agent answers every question instantly using your docs. The moment a
+              customer says "talk to a human," your team steps in — same conversation, full context, zero handoff drag.
             </p>
-            <p className="mt-4 max-w-2xl text-xl text-gray-500 lg:mx-auto">
-              Our platform combines the power of AI with human expertise to deliver exceptional customer experiences.
-            </p>
-          </div>
+            <div className="flex flex-wrap gap-3">
+              <a href="#demo" className="btn-accent rounded-2xl px-5 py-3 text-[14px] inline-flex items-center gap-2">
+                Try it live <ArrowRight className="h-4 w-4" />
+              </a>
+              <Link to="/login" className="btn-ghost rounded-2xl px-5 py-3 text-[14px]">
+                Sign in to your workspace
+              </Link>
+            </div>
 
-          <div className="mt-10">
-            <div className="space-y-10 md:space-y-0 md:grid md:grid-cols-2 md:gap-x-8 md:gap-y-10">
-              <div className="relative">
-                <div className="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-500 text-white">
-                  <Bot className="h-6 w-6" />
-                </div>
-                <p className="ml-16 text-lg leading-6 font-medium text-gray-900">AI-First Support</p>
-                <p className="mt-2 ml-16 text-base text-gray-500">
-                  Start every conversation with intelligent AI that understands context and provides instant, helpful responses.
-                </p>
-              </div>
-
-              <div className="relative">
-                <div className="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-500 text-white">
-                  <Users className="h-6 w-6" />
-                </div>
-                <p className="ml-16 text-lg leading-6 font-medium text-gray-900">Seamless Human Handoff</p>
-                <p className="mt-2 ml-16 text-base text-gray-500">
-                  When AI reaches its limits or when a customer requests, smoothly transition to human agents for personalized support.
-                </p>
-              </div>
-
-              <div className="relative">
-                <div className="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-500 text-white">
-                  <Shield className="h-6 w-6" />
-                </div>
-                <p className="ml-16 text-lg leading-6 font-medium text-gray-900">One‑Click Escalation</p>
-                <p className="mt-2 ml-16 text-base text-gray-500">
-                  Customers can say “talk to a human” to instantly notify agents and escalate the conversation.
-                </p>
-              </div>
-
-              <div className="relative">
-                <div className="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-500 text-white">
-                  <MessageCircle className="h-6 w-6" />
-                </div>
-                <p className="ml-16 text-lg leading-6 font-medium text-gray-900">Real-time Communication</p>
-                <p className="mt-2 ml-16 text-base text-gray-500">
-                  Live chat with typing indicators, real-time notifications, and instant message delivery.
-                </p>
-              </div>
+            <div className="flex items-center gap-6 mt-10 text-[12px] text-slate-500">
+              <Legend dot="var(--mode-ai)" label="AI agent" />
+              <Legend dot="var(--mode-human)" label="Human agent" />
+              <Legend dot="rgba(148,163,184,0.6)" label="Customer" />
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Demo Section */}
-      <div className="py-12 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <h2 className="text-3xl font-extrabold text-gray-900 sm:text-4xl">
-              Try the Demo
-            </h2>
-            <p className="mt-4 text-lg text-gray-500">
-              Experience our AI-powered support platform in action. Click the chat widget to start a conversation.
-            </p>
+          {/* Hero centerpiece: scripted chat preview */}
+          <HeroChatPreview />
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="max-w-6xl mx-auto px-6 py-20">
+        <div className="max-w-2xl mb-12">
+          <p className="text-[12px] uppercase tracking-wider font-bold mb-3" style={{ color: "var(--mode-ai)" }}>What you get</p>
+          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">Built for the moment between bot and human.</h2>
+          <p className="text-[15px] text-slate-400 leading-relaxed">
+            SupportCue is opinionated about one thing: the handoff. Everything below is in service of that moment.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <Feature mode="ai" icon={Bot} title="AI that knows your product"
+            body="Drop in PDFs and policies. The AI grounds every answer in your real docs — no hallucinated returns policies, no made-up SLAs." />
+          <Feature mode="human" icon={Shield} title="One-tap human handoff"
+            body="When the AI can't help — or a customer just wants a person — your team gets pinged in real time with full conversation context." />
+          <Feature mode="ai" icon={Zap} title="Live typing + presence"
+            body="Cyan-tinted AI typing, violet-tinted human typing. Customers always know who they're talking to without needing a label." />
+          <Feature mode="human" icon={Users} title="Agent workspace that breathes"
+            body="Three-pane workspace with inbox, conversation, and customer context. Glass surfaces and gentle motion — no flashing or noise." />
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section id="how" className="max-w-6xl mx-auto px-6 py-20">
+        <div className="text-center mb-12">
+          <p className="text-[12px] uppercase tracking-wider font-bold mb-3" style={{ color: "var(--mode-human)" }}>How it works</p>
+          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">From AI to human, in the same thread.</h2>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <Step n="01" mode="ai" title="AI replies instantly">
+            Grounded answers from your knowledge base, available the moment a customer opens the widget.
+          </Step>
+          <Step n="02" mode="human" title="Customer asks for a human">
+            One tap or natural language ("talk to a human") pings every available agent in real time.
+          </Step>
+          <Step n="03" mode="human" title="Agent takes over seamlessly">
+            Full context, same thread — the customer never has to repeat themselves.
+          </Step>
+        </div>
+      </section>
+
+      {/* Demo CTA */}
+      <section id="demo" className="max-w-4xl mx-auto px-6 py-20 text-center">
+        <div className="glass-card p-10 sm:p-14">
+          <div className="inline-flex items-center gap-1.5 mb-5 text-[12px] text-slate-300 glass-subtle rounded-full px-3 py-1.5">
+            <MessageCircle className="h-3 w-3" style={{ color: "var(--mode-ai)" }} />
+            Live demo
           </div>
-          
-          <div className="mt-8 text-center">
-            <div className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-primary-700 bg-primary-100 hover:bg-primary-200">
-              <MessageCircle className="mr-2 h-5 w-5" />
-              Chat widget is available in the bottom-right corner
-            </div>
+          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">See the handoff happen.</h2>
+          <p className="text-[15px] text-slate-400 max-w-lg mx-auto mb-8 leading-relaxed">
+            Open the chat widget in the bottom-right. Ask the AI anything, then say
+            <span className="font-semibold text-slate-200"> "talk to a human"</span> to watch the moment switch from cyan to violet.
+          </p>
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] glass-subtle">
+            <span className="w-2 h-2 rounded-full animate-pulse-soft" style={{ background: "var(--mode-ai)" }} />
+            Widget is live · bottom right
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Footer */}
-      <footer className="bg-white">
-        <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <p className="text-base text-gray-400">
-              &copy; 2025 AI Support Platform. Built with modern technologies and AI integration.
-            </p>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
 
-      {/* Chat Widget Demo */}
-      <ChatWidget 
-        customerId={user?._id || demoCustomerId}
-        customerName={user?.name || demoCustomerName}
-      />
+      <ChatWidget companyId="demo-company" />
     </div>
   );
 };
+
+function SiteFooter() {
+  return (
+    <footer className="mt-16 border-t border-slate-900/10">
+      <div className="max-w-6xl mx-auto px-6 py-14 grid gap-10 md:grid-cols-4">
+        <div className="md:col-span-1">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "var(--gradient-accent)" }}>
+              <ShieldCheck className="h-4 w-4 text-white" />
+            </div>
+            <span className="text-[15px] font-bold tracking-tight">SupportCue</span>
+          </div>
+          <p className="text-[13px] text-slate-500 leading-relaxed">
+            AI-first customer support with seamless human handoff. Built for teams that care about craft.
+          </p>
+        </div>
+
+        <FooterCol title="Product" links={[
+          { label: "Features", href: "#features" },
+          { label: "How it works", href: "#how" },
+          { label: "Live demo", href: "#demo" },
+        ]} />
+
+        <FooterCol title="Company" links={[
+          { label: "About the project", to: "/about" },
+          { label: "Contact", href: "mailto:hello@supportcue.app" },
+        ]} />
+
+        <FooterCol title="Resources" links={[
+          { label: "Sign in", to: "/login" },
+          { label: "Dashboard", to: "/dashboard" },
+          { label: "Privacy", href: "#" },
+          { label: "Terms", href: "#" },
+        ]} />
+      </div>
+      <div className="border-t border-slate-900/10">
+        <div className="max-w-6xl mx-auto px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[12px] text-slate-500">
+          <span>© {new Date().getFullYear()} SupportCue · All rights reserved</span>
+          <span className="inline-flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full animate-pulse-soft" style={{ background: "var(--mode-ai)" }} />
+            All systems operational
+          </span>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+function FooterCol({ title, links }) {
+  return (
+    <div>
+      <h4 className="text-[12px] font-semibold tracking-wider uppercase text-slate-500 mb-4">{title}</h4>
+      <ul className="space-y-2.5">
+        {links.map((l) => (
+          <li key={l.label}>
+            {l.to ? (
+              <Link to={l.to} className="text-[13px] text-slate-600 hover:text-slate-900 transition-colors inline-flex items-center gap-1">
+                {l.label} <ArrowUpRight className="h-3 w-3 opacity-60" />
+              </Link>
+            ) : (
+              <a href={l.href} className="text-[13px] text-slate-600 hover:text-slate-900 transition-colors">
+                {l.label}
+              </a>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Legend({ dot, label }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="w-2 h-2 rounded-full" style={{ background: dot, boxShadow: `0 0 8px ${dot}` }} />
+      {label}
+    </span>
+  );
+}
+
+function Feature({ mode, icon: Icon, title, body }) {
+  const accent = mode === "ai" ? "var(--mode-ai)" : "var(--mode-human)";
+  return (
+    <div className="glass-card glass-card-hover p-6">
+      <div
+        className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${mode === "ai" ? "avatar-ai" : "avatar-human"}`}
+      >
+        <Icon className="h-4 w-4" />
+      </div>
+      <h3 className="text-[16px] font-semibold tracking-tight mb-2">{title}</h3>
+      <p className="text-[13.5px] text-slate-400 leading-relaxed">{body}</p>
+      <div className="mt-4 h-px" style={{ background: `linear-gradient(90deg, ${accent}, transparent)` }} aria-hidden />
+    </div>
+  );
+}
+
+function Step({ n, mode, title, children }) {
+  return (
+    <div className="glass-card p-6">
+      <div className="text-[11px] font-bold tracking-wider mb-4" style={{ color: mode === "ai" ? "var(--mode-ai)" : "var(--mode-human)" }}>
+        STEP {n}
+      </div>
+      <h4 className="text-[16px] font-semibold tracking-tight mb-2">{title}</h4>
+      <p className="text-[13.5px] text-slate-400 leading-relaxed">{children}</p>
+    </div>
+  );
+}
+
+/* ---------- Scripted hero chat preview (the cyan → violet moment) ---------- */
+function HeroChatPreview() {
+  const [step, setStep] = React.useState(0);
+  const script = [
+    { role: "customer", text: "Can I change the shipping address on my order?" },
+    { role: "ai", text: "Yes — if your order hasn't shipped, you can edit the address from your account page. Want me to walk you through it?" },
+    { role: "customer", text: "I'd rather talk to a human." },
+    { role: "ai", text: "Of course — connecting you to an agent now." },
+    { role: "agent", text: "Hi! Riya here — taking over from the AI. I can update that for you right now." },
+  ];
+
+  React.useEffect(() => {
+    if (step >= script.length) {
+      const reset = setTimeout(() => setStep(0), 4500);
+      return () => clearTimeout(reset);
+    }
+    const t = setTimeout(() => setStep((s) => s + 1), step === 0 ? 600 : 1500);
+    return () => clearTimeout(t);
+  }, [step]);
+
+  const visible = script.slice(0, step);
+  const isHumanMode = visible.some((m) => m.role === "agent");
+
+  return (
+    <div className="relative animate-fade-slide">
+      <div
+        className="absolute -inset-1 rounded-[28px] opacity-50 blur-2xl -z-10 transition-colors"
+        style={{
+          background: isHumanMode
+            ? "linear-gradient(135deg, rgba(139,92,246,0.40), rgba(99,102,241,0.20))"
+            : "linear-gradient(135deg, rgba(34,211,238,0.40), rgba(99,102,241,0.20))",
+        }}
+        aria-hidden
+      />
+      <div className="glass-strong rounded-[24px] p-5 max-w-md mx-auto" style={{ minHeight: 480 }}>
+        {/* Header */}
+        <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-4">
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isHumanMode ? "avatar-human" : "avatar-ai"}`}>
+              {isHumanMode ? <Shield className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+            </div>
+            <div>
+              <p className="text-[13px] font-semibold tracking-tight">
+                {isHumanMode ? "Riya · Support" : "AI Support"}
+              </p>
+              <p className="text-[11px] text-slate-400 inline-flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse-soft" style={{ background: isHumanMode ? "var(--mode-human)" : "var(--mode-ai)" }} />
+                {isHumanMode ? "Online · just took over" : "Online"}
+              </p>
+            </div>
+          </div>
+          <div className={`text-[10px] font-bold px-2 py-1 rounded-full ${isHumanMode ? "badge-human" : "badge-ai"}`}>
+            {isHumanMode ? "HUMAN" : "AI"}
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="space-y-3 min-h-[320px]">
+          {visible.map((m, i) => {
+            const isCustomer = m.role === "customer";
+            const isAI = m.role === "ai";
+            const bubble = isCustomer ? "bubble-self" : isAI ? "bubble-ai" : "bubble-human";
+            return (
+              <div key={i} className={`flex items-end gap-2 animate-fade-slide ${isCustomer ? "justify-end" : "justify-start"}`}>
+                {!isCustomer && (
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${isAI ? "avatar-ai" : "avatar-human"}`}>
+                    {isAI ? <Bot className="h-3 w-3" /> : <Shield className="h-3 w-3" />}
+                  </div>
+                )}
+                <div className={`${bubble} max-w-[78%] px-3.5 py-2 rounded-2xl ${isCustomer ? "rounded-br-md" : "rounded-bl-md"}`}>
+                  <p className="text-[13px] leading-relaxed">{m.text}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default Home;
