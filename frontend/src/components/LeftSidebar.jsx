@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { MessageCircle, User, Bot, RefreshCw } from "lucide-react";
 import { chatAPI } from "../api/api";
 
-const LeftSidebar = ({ selectedChat, onChatSelect, currentUser }) => {
+const LeftSidebar = ({ selectedChat, onChatSelect, currentUser, refreshTrigger }) => {
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -11,11 +11,13 @@ const LeftSidebar = ({ selectedChat, onChatSelect, currentUser }) => {
     fetchChats();
     const interval = setInterval(fetchChats, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [refreshTrigger]);
 
   const fetchChats = async () => {
     try {
-      setLoading(true);
+      // Only show the full loading skeleton on the very first load (chats is empty)
+      // Subsequent refreshes silently update the list in the background
+      if (chats.length === 0) setLoading(true);
       const response = await chatAPI.getActiveChats();
       setChats(response.data.chats);
       setError("");

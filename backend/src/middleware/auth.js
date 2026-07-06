@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Company = require('../models/Company');
 const config = require('../config/env');
 
 const auth = async (req, res, next) => {
@@ -11,6 +12,11 @@ const auth = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, config.JWT_SECRET);
+    
+    if (!decoded.userId) {
+      return res.status(401).json({ error: 'Invalid token type.' });
+    }
+
     const user = await User.findById(decoded.userId);
     
     if (!user) {
@@ -32,13 +38,18 @@ const optionalAuth = async (req, res, next) => {
     
     if (token) {
       const decoded = jwt.verify(token, config.JWT_SECRET);
-      const user = await User.findById(decoded.userId);
       
-      if (user) {
-        req.user = user;
-        console.log('Optional auth: User authenticated:', user._id);
+      if (decoded.userId) {
+        const user = await User.findById(decoded.userId);
+        
+        if (user) {
+          req.user = user;
+          console.log('Optional auth: User authenticated:', user._id);
+        } else {
+          console.log('Optional auth: Token provided but user not found');
+        }
       } else {
-        console.log('Optional auth: Token provided but user not found');
+        console.log('Optional auth: Token provided but missing userId');
       }
     } else {
       console.log('Optional auth: No token provided');
@@ -88,4 +99,33 @@ const requireSuperuser = async (req, res, next) => {
   }
 };
 
-module.exports = { auth, optionalAuth, requireAgent, requireSuperuser };
+// Middleware to authenticate a company
+const companyAuth = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ error: 'Access denied. No token provided.' });
+    }
+
+    const decoded = jwt.verify(token, config.JWT_SECRET);
+    
+    if (!decoded.companyId) {
+      return res.status(401).json({ error: 'Invalid token type.' });
+    }
+
+    const company = await Company.findById(decoded.companyId);
+    
+    if (!company) {
+      return res.status(401).json({ error: 'Invalid token. Company not found.' });
+    }
+
+    req.company = company;
+    next();
+  } catch (error) {
+    console.error('Company auth middleware error:', error.message);
+    res.status(401).json({ error: 'Invalid token.' });
+  }
+};
+
+module.exports = { auth, optionalAuth, requireAgent, requireSuperuser, companyAuth };

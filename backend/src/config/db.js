@@ -3,21 +3,26 @@ const config = require('./env');
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(config.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
-    
-    // Create indexes for better performance
-    await mongoose.connection.db.collection('chats').createIndex({ mode: 1 });
-    await mongoose.connection.db.collection('chats').createIndex({ lastInteraction: 1 });
-    
+    await mongoose.connect(config.MONGO_URI);
+    console.log(`[DB] MongoDB Connected: ${mongoose.connection.host}`);
   } catch (error) {
-    console.error('MongoDB connection error:', error);
+    console.error('[DB] MongoDB connection error:', error.message);
     process.exit(1);
   }
 };
 
+// Reconnection logging
+mongoose.connection.on('disconnected', () => {
+  console.warn('[DB] MongoDB disconnected — Mongoose will attempt to reconnect...');
+});
+
+mongoose.connection.on('reconnected', () => {
+  console.log('[DB] MongoDB reconnected successfully.');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('[DB] MongoDB connection error event:', err.message);
+});
+
 module.exports = connectDB;
+

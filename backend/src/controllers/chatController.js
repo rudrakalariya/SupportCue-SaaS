@@ -2,46 +2,39 @@ const Chat = require('../models/Chat');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 
+const CustomerSession = require('../models/CustomerSession');
+const Company = require('../models/Company');
+
 // Create a new chat for a customer
 const createChat = async (req, res) => {
   try {
-    // Support both authenticated and anonymous/demo customers
-    // If user is authenticated, always use their ID, ignore body data
-    let customerId = req.user?._id || req.body.customerId;
-    const customerName = req.user?.name || req.body.customerName || 'Customer';
-    const customerEmail = req.user?.email;
-    
-    console.log('Creating chat with data:', { customerId, customerName, customerEmail });
-    console.log('Request user:', req.user ? { id: req.user._id, name: req.user.name } : 'No authenticated user');
+    const { userId, companyId } = req.body;
 
-    // Validation: allow anonymous/demo by generating an ObjectId when invalid
-    let isAnonymous = false;
-    if (!customerId || !mongoose.Types.ObjectId.isValid(customerId)) {
-      console.log('Invalid customer ID provided, generating anonymous ID:', customerId);
-      customerId = new mongoose.Types.ObjectId();
-      isAnonymous = true;
-    } else if (!req.user?._id) {
-      // If no authenticated user but valid ObjectId provided, mark as anonymous
-      console.log('No authenticated user, marking chat as anonymous');
-      isAnonymous = true;
-    } else {
-      console.log('Authenticated user found, chat will be associated with user:', req.user._id);
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
     }
 
-    // If authenticated, ensure valid user exists; else allow demo/anonymous
-    if (req.user?._id) {
-      const customer = await User.findById(customerId);
-      if (!customer) {
-        console.log('Customer not found:', customerId);
-        return res.status(404).json({ error: 'Customer not found' });
+    let resolvedCompanyId = companyId;
+
+    if (!resolvedCompanyId) {
+      const defaultCompany = await Company.findOne();
+      if (!defaultCompany) {
+        return res.status(404).json({ error: 'No company found to assign' });
       }
-      console.log('Customer found:', customer.name);
+      resolvedCompanyId = defaultCompany._id;
+    } else {
+      if (!mongoose.Types.ObjectId.isValid(resolvedCompanyId)) {
+        return res.status(400).json({ error: 'Invalid company ID' });
+      }
     }
 
-    // Create new chat (allow multiple chats per customer)
+    // Ensure session exists
+    await CustomerSession.findOrCreate(userId, resolvedCompanyId);
+
+    // Create new chat
     const chat = new Chat({
-      customerId,
-      isAnonymous,
+      customerId: userId,
+      companyId: resolvedCompanyId,
       mode: 'ai',
       status: 'open',
       messages: [{
@@ -51,8 +44,14 @@ const createChat = async (req, res) => {
       }]
     });
 
-
     await chat.save();
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`agents_${resolvedCompanyId}`).to('superusers').emit('chatUpdated', {
+        chatId: chat._id
+      });
+    }
 
     res.status(201).json({
       message: 'Chat created successfully',
@@ -70,34 +69,33 @@ const createChat = async (req, res) => {
 const getChat = async (req, res) => {
   try {
     const { chatId } = req.params;
-    
-    console.log('Getting chat by ID:', chatId);
 
     // Validation
     if (!mongoose.Types.ObjectId.isValid(chatId)) {
-      console.log('Invalid chat ID:', chatId);
       return res.status(400).json({ error: 'Invalid chat ID' });
     }
 
     const chat = await Chat.findById(chatId)
-      .populate('customerId', 'name email online')
+      .populate('companyId', 'name slug')
       .populate('assignedAgentId', 'name email');
 
     if (!chat) {
-      console.log('Chat not found:', chatId);
       return res.status(404).json({ error: 'Chat not found' });
     }
 
-    console.log('Chat found:', {
-      id: chat._id,
-      mode: chat.mode,
-      status: chat.status,
-      messageCount: chat.messages.length
-    });
+    // Access control
+    if (!req.user) {
+      if (req.query.userId !== chat.customerId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    } else if (req.user.role === 'agent') {
+      if (req.user.companyId && chat.companyId && req.user.companyId.toString() !== chat.companyId._id.toString()) {
+        return res.status(403).json({ error: 'Access denied to this company' });
+      }
+    }
 
     // Get last 15 messages
     const lastMessages = chat.getLastMessages(15);
-    console.log('Last messages:', lastMessages.length);
 
     const response = {
       chat: {
@@ -111,8 +109,6 @@ const getChat = async (req, res) => {
       },
       messages: lastMessages
     };
-
-    console.log('Sending response:', response);
 
     res.json(response);
 
@@ -175,9 +171,19 @@ const takeOverChat = async (req, res) => {
 // Get active chats (for agent dashboard)
 const getActiveChats = async (req, res) => {
   try {
-    const chats = await Chat.find({ status: 'open', isAnonymous: { $ne: true } })
-      .populate('customerId', 'name email online')
+    let query = { status: 'open' };
+    
+    // If user is an agent, strictly enforce company filtering
+    if (req.user && req.user.role === 'agent') {
+      if (!req.user.companyId) {
+        return res.json({ chats: [], total: 0 });
+      }
+      query.companyId = req.user.companyId;
+    }
+
+    const chats = await Chat.find(query)
       .populate('assignedAgentId', 'name email')
+      .populate('companyId', 'name slug')
       .sort({ lastInteraction: -1 })
       .limit(50);
 
@@ -202,6 +208,38 @@ const getActiveChats = async (req, res) => {
   }
 };
 
+// Get all chats for a specific company (open and closed) - Company authenticated endpoint
+const getCompanyChats = async (req, res) => {
+  try {
+    const companyId = req.company._id;
+
+    const chats = await Chat.find({ companyId })
+      .populate('assignedAgentId', 'name email')
+      .sort({ lastInteraction: -1 }); // Can add pagination if necessary
+
+    const formattedChats = chats.map(chat => ({
+      _id: chat._id,
+      customer: chat.customerId,
+      assignedAgent: chat.assignedAgentId,
+      mode: chat.mode,
+      status: chat.status,
+      lastInteraction: chat.lastInteraction,
+      messageCount: chat.messages.length,
+      lastMessage: chat.messages[chat.messages.length - 1]?.text || 'No messages',
+      messages: chat.messages
+    }));
+
+    res.json({
+      chats: formattedChats,
+      total: formattedChats.length
+    });
+
+  } catch (error) {
+    console.error('Get company chats error:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 // Close chat
 const closeChat = async (req, res) => {
   try {
@@ -220,6 +258,14 @@ const closeChat = async (req, res) => {
     chat.status = 'closed';
     await chat.save();
 
+    const io = req.app.get('io');
+    if (io) {
+      // Notify the customer
+      io.to(chatId).emit('chatClosed');
+      // Notify agents to refresh
+      io.to(`agents_${chat.companyId}`).to('superusers').emit('chatUpdated', { chatId });
+    }
+
     res.json({
       message: 'Chat closed successfully',
       chatId: chat._id
@@ -234,38 +280,35 @@ const closeChat = async (req, res) => {
 // Get chats for a specific user (customer)
 const getUserChats = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { userId, companyId } = req.query;
     
-    console.log('Getting chats for user:', userId);
-
-    // Validation
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      console.log('Invalid user ID:', userId);
-      return res.status(400).json({ error: 'Invalid user ID' });
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
     }
 
-    // Check if the requesting user is the same as the userId or is an agent
-    if (req.user._id.toString() !== userId && req.user.role !== 'agent') {
-      console.log('Access denied for user:', req.user._id, 'requesting chats for:', userId);
-      return res.status(403).json({ error: 'Access denied' });
+    let query = { customerId: userId };
+    if (companyId) {
+      query.companyId = companyId;
     }
 
-    const chats = await Chat.find({ customerId: userId })
+    // Check if the requesting user is an agent trying to access chats
+    if (req.user && req.user.role === 'agent') {
+      if (!req.user.companyId) {
+        return res.status(403).json({ error: 'Access denied. Unassigned agent.' });
+      }
+      
+      if (companyId && companyId.toString() !== req.user.companyId.toString()) {
+        return res.status(403).json({ error: 'Access denied to this company' });
+      }
+      
+      // Force the query to only return chats from the agent's company
+      query.companyId = req.user.companyId;
+    }
+
+    const chats = await Chat.find(query)
       .populate('assignedAgentId', 'name email')
       .sort({ lastInteraction: -1 })
       .limit(20);
-
-    console.log('Found chats for user', userId, ':', chats.length);
-    chats.forEach((chat, index) => {
-      console.log(`Chat ${index + 1}:`, {
-        id: chat._id,
-        customerId: chat.customerId,
-        isAnonymous: chat.isAnonymous,
-        mode: chat.mode,
-        status: chat.status,
-        messageCount: chat.messages.length
-      });
-    });
 
     const formattedChats = chats.map(chat => ({
       _id: chat._id,
@@ -276,8 +319,6 @@ const getUserChats = async (req, res) => {
       messageCount: chat.messages.length,
       lastMessage: chat.messages[chat.messages.length - 1]?.text || 'No messages'
     }));
-
-    console.log('Formatted chats:', formattedChats);
 
     res.json({
       chats: formattedChats,
@@ -294,6 +335,7 @@ module.exports = {
   createChat,
   getChat,
   getUserChats,
+  getCompanyChats,
   takeOverChat,
   getActiveChats,
   closeChat

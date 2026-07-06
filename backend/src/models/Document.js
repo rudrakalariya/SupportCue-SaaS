@@ -31,11 +31,6 @@ const documentSchema = new mongoose.Schema({
     default: 'processing',
     index: true
   },
-  uploadedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
   errorMessage: {
     type: String,
     default: null

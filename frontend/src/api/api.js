@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create axios instance
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_URL || '/api',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -41,16 +41,26 @@ export const authAPI = {
   login: (credentials) => api.post('/auth/login', credentials),
   getProfile: () => api.get('/auth/profile'),
   logout: () => api.post('/auth/logout'),
+  acceptCompanyInvite: (token, password) => api.post('/auth/company/accept-invite', { token, password }),
+  verifyCompanyInvite: (token) => api.get(`/auth/company/verify-invite?token=${token}`),
+  companyLogin: (credentials) => api.post('/auth/company/login', credentials),
+};
+
+// Customer API
+export const customerAPI = {
+  init: (data) => api.post('/customer/init', data),
+  setCompany: (data) => api.put('/customer/set-company', data),
 };
 
 // Chat API
 export const chatAPI = {
-  createChat: (chatData) => api.post('/chat/create', chatData),
-  getChat: (chatId) => api.get(`/chat/${chatId}`),
-  getUserChats: (userId) => api.get(`/chat/user/${userId}`),
+  createChat: (data) => api.post('/chat/create', data),
+  getChat: (chatId, userId) => api.get(`/chat/${chatId}${userId ? `?userId=${userId}` : ''}`),
+  getUserChats: (userId, companyId) => api.get(`/chat/user-chats?userId=${userId}${companyId ? `&companyId=${companyId}` : ''}`),
+  getCompanyChats: () => api.get('/chat/company/history'),
   takeOverChat: (chatId, agentId) => api.post('/chat/takeover', { chatId, agentId }),
-  getActiveChats: () => api.get('/chat/active'),
   closeChat: (chatId) => api.put(`/chat/${chatId}/close`),
+  getActiveChats: () => api.get('/chat/active'),
 };
 
 // Company API (superuser only)
@@ -63,22 +73,29 @@ export const companyAPI = {
   assignUser: (userId, companyId) => api.post('/company/assign-user', { userId, companyId }),
 };
 
-// Knowledge Base API (superuser only)
+// Knowledge Base API (company authenticated only)
 export const kbAPI = {
-  upload: (companyId, file, onUploadProgress) => {
+  upload: (file, onUploadProgress) => {
     const formData = new FormData();
     formData.append('document', file);
-    formData.append('companyId', companyId);
     return api.post('/kb/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress,
     });
   },
-  listDocuments: (companyId) => api.get(`/kb/documents/${companyId}`),
+  listDocuments: () => api.get('/kb/documents'),
   getDocument: (docId) => api.get(`/kb/document/${docId}`),
   deleteDocument: (docId) => api.delete(`/kb/document/${docId}`),
-  search: (companyId, query) => api.get(`/kb/search?companyId=${companyId}&q=${encodeURIComponent(query)}`),
+  search: (query) => api.get(`/kb/search?q=${encodeURIComponent(query)}`),
+};
+
+// Notification API (agent/superuser only)
+export const notificationAPI = {
+  getUnread: () => api.get('/notifications?unreadOnly=true'),
+  getAll: () => api.get('/notifications'),
+  markRead: (id) => api.put(`/notifications/${id}/read`),
+  markAllRead: () => api.put('/notifications/read-all'),
+  delete: (id) => api.delete(`/notifications/${id}`),
 };
 
 export default api;
-

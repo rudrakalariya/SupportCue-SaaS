@@ -30,6 +30,12 @@ const Icons = {
   X: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   ),
+  Download: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+  ),
+  Code: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+  ),
 };
 
 const StatusBadge = ({ status }) => {
@@ -81,6 +87,9 @@ const CompanyDashboard = ({ user, onLogout }) => {
             <TabBtn active={activeTab === "chats"} onClick={() => setActiveTab("chats")}>
               <Icons.MessageSquare /> Chat History
             </TabBtn>
+            <TabBtn active={activeTab === "integration"} onClick={() => setActiveTab("integration")}>
+              <Icons.Code /> Integration
+            </TabBtn>
           </nav>
 
           <button onClick={onLogout} className="btn-ghost rounded-xl px-3 py-2 text-[13px] inline-flex items-center gap-1.5">
@@ -90,7 +99,7 @@ const CompanyDashboard = ({ user, onLogout }) => {
       </header>
 
       <main className="max-w-[1200px] mx-auto px-6 py-8">
-        {activeTab === "kb" ? <KnowledgeBaseTab /> : <ChatHistoryTab />}
+        {activeTab === "kb" ? <KnowledgeBaseTab /> : activeTab === "chats" ? <ChatHistoryTab /> : <IntegrationTab user={user} />}
       </main>
     </div>
   );
@@ -309,7 +318,10 @@ const KnowledgeBaseTab = () => {
 const ChatHistoryTab = () => {
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedChat, setSelectedChat] = useState(null);
+  const [selectedItem, setSelectedItem] = useState(null); // Can be a chat or a group of chats
+  
+  const [filterCustomerId, setFilterCustomerId] = useState("");
+  const [groupByCustomer, setGroupByCustomer] = useState(false);
 
   useEffect(() => {
     const fetchChats = async () => {
@@ -328,84 +340,215 @@ const ChatHistoryTab = () => {
   const formatDate = (d) =>
     new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
+  const filteredChats = chats.filter(chat => 
+    !filterCustomerId || (chat.customer && chat.customer.toLowerCase().includes(filterCustomerId.toLowerCase()))
+  );
+
+  let groupedChats = {};
+  if (groupByCustomer) {
+    filteredChats.forEach(chat => {
+      const id = chat.customer || "Unknown Customer";
+      if (!groupedChats[id]) groupedChats[id] = [];
+      groupedChats[id].push(chat);
+    });
+  }
+
+  const exportJSON = () => {
+    let dataToExport = filteredChats;
+    if (groupByCustomer) {
+      dataToExport = groupedChats;
+    }
+    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chats_export_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const renderChatListButton = (chat, active) => (
+    <button
+      key={chat._id}
+      onClick={() => setSelectedItem({ type: 'single', data: chat })}
+      className={`w-full text-left p-4 rounded-xl transition-all border ${
+        active ? "border-[rgba(139,92,246,0.35)] bg-[rgba(99,102,241,0.08)]" : "border-transparent hover:bg-white/[0.04]"
+      }`}
+    >
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-[14px] font-semibold text-slate-100 truncate pr-2">
+          {chat.customer || "Anonymous Customer"}
+        </span>
+        <span className="text-[10px] text-slate-500 whitespace-nowrap">{formatDate(chat.createdAt || chat.lastInteraction)}</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-[12px] text-slate-400">
+          {chat.assignedAgent?.name ? `Agent: ${chat.assignedAgent.name}` : "Unassigned (AI)"}
+        </span>
+        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${chat.status === "open" ? "pill-success" : "bg-white/5 text-slate-400 border border-white/10"}`}>
+          {chat.status.toUpperCase()}
+        </span>
+      </div>
+    </button>
+  );
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6 animate-fade-slide" style={{ height: "calc(100vh - 160px)" }}>
-      <div className="glass-card flex flex-col overflow-hidden">
-        <div className="p-5 border-b border-white/10">
-          <h3 className="text-[15px] font-bold">Chat History</h3>
+    <div className="flex flex-col gap-4 animate-fade-slide">
+      
+      {/* Action Bar */}
+      <div className="glass-card p-4 flex flex-col sm:flex-row gap-4 items-center justify-between">
+        <div className="flex items-center gap-4 flex-1">
+          <input 
+            type="text" 
+            placeholder="Filter by Customer ID..." 
+            value={filterCustomerId}
+            onChange={(e) => setFilterCustomerId(e.target.value)}
+            className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-[13px] text-slate-200 outline-none focus:border-[rgba(139,92,246,0.5)] w-64"
+          />
+          <label className="flex items-center gap-2 text-[13px] text-slate-300 cursor-pointer select-none">
+            <input 
+              type="checkbox" 
+              checked={groupByCustomer}
+              onChange={(e) => setGroupByCustomer(e.target.checked)}
+              className="rounded bg-black/20 border-white/20 text-[rgba(139,92,246,1)] focus:ring-[rgba(139,92,246,0.5)]"
+            />
+            Group by Customer ID
+          </label>
         </div>
-        <div className="flex-1 overflow-y-auto p-3">
-          {loading ? (
-            <div className="text-center p-5 text-slate-500 text-sm">Loading chats…</div>
-          ) : chats.length === 0 ? (
-            <div className="text-center p-10 text-slate-500 text-sm">No chats found.</div>
+        <button 
+          onClick={exportJSON}
+          className="btn-accent rounded-xl px-4 py-2 text-[13px] inline-flex items-center gap-2 whitespace-nowrap"
+        >
+          <Icons.Download /> Export JSON
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6" style={{ height: "calc(100vh - 250px)" }}>
+        {/* List Pane */}
+        <div className="glass-card flex flex-col overflow-hidden">
+          <div className="p-5 border-b border-white/10">
+            <h3 className="text-[15px] font-bold">Chats ({filteredChats.length})</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3">
+            {loading ? (
+              <div className="text-center p-5 text-slate-500 text-sm">Loading chats…</div>
+            ) : filteredChats.length === 0 ? (
+              <div className="text-center p-10 text-slate-500 text-sm">No chats found.</div>
+            ) : groupByCustomer ? (
+              <div className="flex flex-col gap-4">
+                {Object.entries(groupedChats).map(([customerId, groupChats]) => {
+                  const isActiveGroup = selectedItem?.type === 'group' && selectedItem?.id === customerId;
+                  return (
+                    <div key={customerId} className="flex flex-col gap-1">
+                      <button 
+                        onClick={() => setSelectedItem({ type: 'group', id: customerId, data: groupChats })}
+                        className={`text-left px-3 py-2 text-[13px] font-bold text-slate-200 bg-white/5 rounded-lg hover:bg-white/10 transition-colors flex justify-between ${isActiveGroup ? 'ring-1 ring-[rgba(139,92,246,0.5)]' : ''}`}
+                      >
+                        <span className="truncate">{customerId}</span>
+                        <span className="text-[11px] text-slate-400 bg-black/20 px-2 py-0.5 rounded-full">{groupChats.length}</span>
+                      </button>
+                      <div className="flex flex-col gap-1 pl-2 border-l-2 border-white/5 ml-2 mt-1">
+                        {groupChats.map(chat => renderChatListButton(chat, selectedItem?.data?._id === chat._id))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {filteredChats.map((chat) => renderChatListButton(chat, selectedItem?.data?._id === chat._id))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* JSON Viewer Pane */}
+        <div className="glass-card flex flex-col overflow-hidden">
+          {selectedItem ? (
+            <>
+              <div className="p-5 border-b border-white/10 flex justify-between items-center bg-black/20">
+                <div>
+                  <h3 className="text-[15px] font-bold">Raw JSON View</h3>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    {selectedItem.type === 'group' 
+                      ? `Showing all ${selectedItem.data.length} chats for customer: ${selectedItem.id}` 
+                      : `Showing chat ID: ${selectedItem.data._id}`}
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto bg-[#0d1117] p-4">
+                <pre className="text-[13px] font-mono text-[#c9d1d9] leading-relaxed whitespace-pre-wrap">
+                  {JSON.stringify(selectedItem.data, null, 2)}
+                </pre>
+              </div>
+            </>
           ) : (
-            <div className="flex flex-col gap-2">
-              {chats.map((chat) => {
-                const active = selectedChat?._id === chat._id;
-                return (
-                  <button
-                    key={chat._id}
-                    onClick={() => setSelectedChat(chat)}
-                    className={`text-left p-4 rounded-xl transition-all border ${
-                      active ? "border-[rgba(139,92,246,0.35)] bg-[rgba(99,102,241,0.08)]" : "border-transparent hover:bg-white/[0.04]"
-                    }`}
-                  >
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[14px] font-semibold text-slate-100">
-                        {chat.customerName || "Anonymous Customer"}
-                      </span>
-                      <span className="text-[10px] text-slate-500">{formatDate(chat.createdAt)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[12px] text-slate-400">
-                        {chat.assignedAgentId ? `Agent: ${chat.assignedAgentId.name}` : "Unassigned (AI)"}
-                      </span>
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${chat.status === "open" ? "pill-success" : "bg-white/5 text-slate-400 border border-white/10"}`}>
-                        {chat.status.toUpperCase()}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3">
+              <Icons.File />
+              <p className="text-sm">Select a chat or group to view raw JSON</p>
             </div>
           )}
         </div>
       </div>
+    </div>
+  );
+};
 
-      <div className="glass-card flex flex-col overflow-hidden">
-        {selectedChat ? (
-          <>
-            <div className="p-5 border-b border-white/10 flex justify-between items-center">
-              <div>
-                <h3 className="text-[15px] font-bold">Transcript</h3>
-                <div className="text-[11px] text-slate-500 mt-0.5 font-mono">{selectedChat._id}</div>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-3">
-              {selectedChat.messages?.map((msg, idx) => {
-                const isCustomer = msg.senderType === "customer";
-                const isAI = msg.senderType === "ai";
-                const bubble = isCustomer ? "bubble-self" : isAI ? "bubble-ai" : "bubble-human";
-                return (
-                  <div key={idx} className={`flex flex-col max-w-[85%] ${isCustomer ? "self-end items-end" : "self-start items-start"}`}>
-                    <div className="text-[10px] text-slate-500 mb-1 mx-1 font-medium uppercase tracking-wider">
-                      {msg.senderType === "ai" ? "AI Assistant" : msg.senderType === "agent" ? "Human Agent" : "Customer"}
-                    </div>
-                    <div className={`${bubble} px-4 py-3 rounded-2xl ${isCustomer ? "rounded-br-md" : "rounded-bl-md"} text-[13px] leading-relaxed`}>
-                      {msg.content}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3">
-            <Icons.MessageSquare />
-            <p className="text-sm">Select a chat to view the transcript</p>
+const IntegrationTab = ({ user }) => {
+  const serverUrl = import.meta.env.VITE_SOCKET_URL || window.location.origin;
+  const frontendUrl = window.location.origin;
+  
+  const snippet = `<script>
+  window.SupportCueConfig = {
+    companyId: "${user?._id}",
+    serverUrl: "${serverUrl}",
+    // customerId: "user-123" // Optional: Pass your logged-in user's ID here
+  };
+</script>
+<script src="${frontendUrl}/widget.js" async></script>`;
+
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(snippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="animate-fade-slide">
+      <h2 className="text-xl font-bold tracking-tight mb-5">Widget Integration</h2>
+      
+      <div className="glass-card p-8 max-w-3xl">
+        <h3 className="text-[16px] font-bold mb-3">Embed SupportCue on your website</h3>
+        <p className="text-[13px] text-slate-300 mb-6 leading-relaxed">
+          Copy the code snippet below and paste it just before the closing <code>&lt;/body&gt;</code> tag on all pages where you want the chat widget to appear.
+        </p>
+
+        <div className="relative mb-6">
+          <div className="absolute top-0 right-0 p-2">
+            <button 
+              onClick={copyToClipboard}
+              className="bg-white/10 hover:bg-white/20 transition-colors px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white"
+            >
+              {copied ? "Copied!" : "Copy Code"}
+            </button>
           </div>
-        )}
+          <pre className="bg-[#0d1117] p-5 pt-12 rounded-2xl overflow-x-auto text-[13px] font-mono text-[#c9d1d9] border border-white/10 whitespace-pre-wrap">
+            {snippet}
+          </pre>
+        </div>
+
+        <div className="p-4 rounded-xl" style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)" }}>
+          <h4 className="text-[13px] font-bold text-[color:var(--accent-1)] mb-2">How it works</h4>
+          <ul className="text-[12px] text-slate-300 space-y-2 list-disc pl-4">
+            <li>The widget will appear as a floating chat bubble in the bottom right corner of your site.</li>
+            <li>Customers can interact with your AI assistant immediately using your company's knowledge base.</li>
+            <li>If the AI cannot resolve the issue or if the customer requests it, the chat will be routed to your human agents.</li>
+          </ul>
+        </div>
       </div>
     </div>
   );

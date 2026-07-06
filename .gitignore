@@ -1,12 +1,44 @@
-# Ignore dependencies in all subdirectories (backend & frontend)
+# Dependencies
 node_modules/
+package-lock.json
 
-# Ignore all environment files
+# Environment files — NEVER commit these, they contain secrets
 .env
 .env.local
+.env.production
+.env.staging
 
-# Optional: Ignore your database backups so you don't push sensitive DB dumps to GitHub
-db-backup/
+# Build output
+dist/
+build/
 
-# OS generated files
+# Uploaded files (temporary PDF storage)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Deployment guides (local reference only)
+AWS_DEPLOYMENT_GUIDE.md
+deployment_guide.md
+
+# Test files
+embed-test.html
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor directories
+.vscode/
+.idea/
+
+# Coverage
+coverage/
+
+# Misc
+*.pem
+*.ppk

@@ -12,17 +12,8 @@ const uploadDocument = async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded. Please attach a PDF.' });
     }
 
-    const { companyId } = req.body;
-
-    if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
-      return res.status(400).json({ error: 'A valid company ID is required' });
-    }
-
-    // Verify company exists
-    const company = await Company.findById(companyId);
-    if (!company) {
-      return res.status(404).json({ error: 'Company not found' });
-    }
+    const companyId = req.company._id;
+    const company = req.company;
 
     // Check document limit
     const existingCount = await Document.countDocuments({ companyId, status: { $ne: 'error' } });
@@ -38,8 +29,7 @@ const uploadDocument = async (req, res) => {
       fileName: req.file.filename,
       originalName: req.file.originalname,
       fileSize: req.file.size,
-      status: 'processing',
-      uploadedBy: req.user._id
+      status: 'processing'
     });
     await doc.save();
 
@@ -69,17 +59,12 @@ const uploadDocument = async (req, res) => {
   }
 };
 
-// List all documents for a specific company
+// List all documents for the authenticated company
 const listDocuments = async (req, res) => {
   try {
-    const { companyId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(companyId)) {
-      return res.status(400).json({ error: 'Invalid company ID' });
-    }
+    const companyId = req.company._id;
 
     const documents = await Document.find({ companyId })
-      .populate('uploadedBy', 'name email')
       .sort({ createdAt: -1 });
 
     res.json({ documents, total: documents.length });
@@ -98,9 +83,9 @@ const getDocument = async (req, res) => {
       return res.status(400).json({ error: 'Invalid document ID' });
     }
 
-    const doc = await Document.findById(docId).populate('uploadedBy', 'name email');
+    const doc = await Document.findOne({ _id: docId, companyId: req.company._id });
     if (!doc) {
-      return res.status(404).json({ error: 'Document not found' });
+      return res.status(404).json({ error: 'Document not found or access denied' });
     }
 
     const chunkCount = await DocumentChunk.countDocuments({ documentId: docId });
@@ -121,9 +106,9 @@ const deleteDocument = async (req, res) => {
       return res.status(400).json({ error: 'Invalid document ID' });
     }
 
-    const doc = await Document.findById(docId);
+    const doc = await Document.findOne({ _id: docId, companyId: req.company._id });
     if (!doc) {
-      return res.status(404).json({ error: 'Document not found' });
+      return res.status(404).json({ error: 'Document not found or access denied' });
     }
 
     // Delete all associated chunks first, then the document
@@ -143,14 +128,11 @@ const deleteDocument = async (req, res) => {
 // Test search endpoint — useful for debugging RAG quality
 const testSearch = async (req, res) => {
   try {
-    const { companyId, q } = req.query;
+    const { q } = req.query;
+    const companyId = req.company._id;
 
-    if (!companyId || !q) {
-      return res.status(400).json({ error: 'companyId and q (query) are required' });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(companyId)) {
-      return res.status(400).json({ error: 'Invalid company ID' });
+    if (!q) {
+      return res.status(400).json({ error: 'q (query) is required' });
     }
 
     const chunks = await ragService.searchRelevantChunks(companyId, q, 5);

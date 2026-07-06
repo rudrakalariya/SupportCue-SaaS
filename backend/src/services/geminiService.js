@@ -1,7 +1,16 @@
 const config = require('../config/env');
 const fetch = require('node-fetch');
 
-const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI customer support agent. Be concise, polite, and professional. Confirm understanding and ask clarifying questions if needed. If you are not sure about something, offer to escalate to a human agent.';
+const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI customer support agent. Be concise, polite, and professional. Confirm understanding and ask clarifying questions if needed.
+
+CRITICAL INSTRUCTION:
+If the user explicitly asks to speak to a human, a real person, an agent, or a manager, OR if the user expresses extreme frustration, you must output a JSON object with handoff_requested set to true.
+
+Format your response strictly as JSON:
+{
+  "answer": "Your text response to the user here. Leave blank if handing off.",
+  "handoff_requested": true or false
+}`;
 
 class GeminiService {
   constructor() {
@@ -27,22 +36,8 @@ class GeminiService {
    * @param {string|null} ragContext          - Retrieved document context (optional)
    * @param {string|null} companySystemPrompt - Company-specific AI persona prompt (optional)
    */
-  buildContentsArray(messages, ragContext = null, companySystemPrompt = null) {
-    const basePrompt = companySystemPrompt || DEFAULT_SYSTEM_PROMPT;
-
-    // Build the system instruction text
-    let systemText = basePrompt;
-
-    if (ragContext) {
-      systemText += `\n\n${ragContext}\n\nIMPORTANT: Base your answer on the provided document context above when it is relevant. If the answer is not found in the documents, say so honestly and offer to escalate to a human agent. Do not make up information.`;
-    }
-
-    const contents = [
-      {
-        role: 'user',
-        parts: [{ text: systemText }]
-      }
-    ];
+  buildContentsArray(messages) {
+    const contents = [];
 
     // Add conversation history (last 15 messages)
     const recentMessages = messages.slice(-15);
@@ -54,7 +49,30 @@ class GeminiService {
       });
     });
 
-    return contents;
+    // Ensure we don't send back-to-back same roles
+    const validContents = [];
+    let lastRole = null;
+    
+    for (const msg of contents) {
+      if (msg.role !== lastRole) {
+        validContents.push(msg);
+        lastRole = msg.role;
+      } else {
+        // Merge consecutive messages from same role
+        validContents[validContents.length - 1].parts[0].text += '\n\n' + msg.parts[0].text;
+      }
+    }
+
+    // Gemini API STRICTLY requires that the conversation starts with a 'user' turn.
+    // If our history starts with an AI greeting ('model'), we must prepend a dummy user turn.
+    if (validContents.length > 0 && validContents[0].role === 'model') {
+      validContents.unshift({
+        role: 'user',
+        parts: [{ text: '[Customer joined the chat]' }]
+      });
+    }
+
+    return validContents;
   }
 
   /**
@@ -79,7 +97,13 @@ class GeminiService {
         return this.getFallbackReply();
       }
 
-      const contents = this.buildContentsArray(messages, ragContext, companySystemPrompt);
+      const contents = this.buildContentsArray(messages);
+      
+      const basePrompt = companySystemPrompt ? `${companySystemPrompt}\n\nCRITICAL INSTRUCTION:\nIf the user explicitly asks to speak to a human, a real person, an agent, or a manager, OR if the user expresses extreme frustration, you must output a JSON object with handoff_requested set to true.\n\nFormat your response strictly as JSON:\n{\n  "answer": "Your text response to the user here. Leave blank if handing off.",\n  "handoff_requested": true or false\n}` : DEFAULT_SYSTEM_PROMPT;
+      let systemText = basePrompt;
+      if (ragContext) {
+        systemText += `\n\n=== KNOWLEDGE BASE CONTEXT ===\n${ragContext}\n==========================\n\nIMPORTANT: Base your answer on the provided document context above when it is relevant. If the answer is not found in the documents, say so honestly and set handoff_requested to true. Do not make up information.`;
+      }
 
       // Add timeout to prevent long waits
       const controller = new AbortController();
@@ -89,12 +113,17 @@ class GeminiService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          systemInstruction: {
+            role: 'user',
+            parts: [{ text: systemText }]
+          },
           contents,
           generationConfig: {
             temperature: 0.6,
             maxOutputTokens: ragContext ? 400 : 150, // More tokens for RAG answers
             topP: 0.8,
-            topK: 40
+            topK: 40,
+            responseMimeType: "application/json"
           }
         }),
         signal: controller.signal
@@ -103,7 +132,9 @@ class GeminiService {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`Gemini API returned ${response.status}: ${errorText}`);
+        throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
@@ -112,7 +143,20 @@ class GeminiService {
       this.rateLimitMap.set(chatId, Date.now());
 
       if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-        return data.candidates[0].content.parts[0].text;
+        const jsonText = data.candidates[0].content.parts[0].text;
+        try {
+          const parsed = JSON.parse(jsonText);
+          return {
+            answer: parsed.answer || '',
+            handoff_requested: parsed.handoff_requested === true
+          };
+        } catch (e) {
+          console.error('Failed to parse Gemini JSON:', e);
+          return {
+            answer: jsonText, // Fallback if not pure JSON
+            handoff_requested: false
+          };
+        }
       } else {
         throw new Error('Invalid response format from Gemini');
       }
@@ -128,14 +172,10 @@ class GeminiService {
 
   // Fallback reply when Gemini is unavailable
   getFallbackReply() {
-    const fallbacks = [
-      'I understand your concern. Let me help you with that.',
-      'Thank you for reaching out. I\'m here to assist you.',
-      'I appreciate you contacting us. How can I help you today?',
-      'I\'m here to support you. What would you like to know?',
-      'Thank you for your patience. Let me address your question.'
-    ];
-    return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+    return {
+      answer: "I apologize, but I'm currently unable to process your request. Let me connect you with a human agent who can help.",
+      handoff_requested: true
+    };
   }
 
   // Alternative method that takes messages array directly

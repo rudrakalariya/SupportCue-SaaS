@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
 import { io } from "socket.io-client";
-import { Send, X, MessageCircle, User, Bot, Shield, Sparkles } from "lucide-react";
+import { Send, X, MessageCircle, Bot, Shield, Sparkles } from "lucide-react";
 import { chatAPI, customerAPI } from "../api/api";
 
-const ChatWidget = ({ companyId }) => {
+// Socket URL: in production, set VITE_SOCKET_URL in your frontend .env
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || window.location.origin;
+
+const ChatWidget = ({ companyId, initialCustomerId, standalone }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
@@ -11,14 +14,28 @@ const ChatWidget = ({ companyId }) => {
   const [socket, setSocket] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [chatMode, setChatMode] = useState("ai");
+  const [chatStatus, setChatStatus] = useState("open");
   const [assignedAgent, setAssignedAgent] = useState(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  // Prevent multiple simultaneous init calls
+  const initializingRef = useRef(false);
 
   useEffect(() => {
-    if (isOpen) initializeChat();
+    if (isOpen && !chatId && !initializingRef.current) {
+      initializeChat();
+    }
+    
+    // Notify parent iframe to resize
+    if (standalone) {
+      if (isOpen) {
+        window.parent.postMessage({ source: 'supportcue-widget', type: 'resize', width: '380px', height: '540px' }, '*');
+      } else {
+        window.parent.postMessage({ source: 'supportcue-widget', type: 'resize', width: '64px', height: '64px' }, '*');
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, standalone]);
 
   const scrollToBottom = () => {
     const anchor = messagesEndRef.current;
@@ -31,44 +48,101 @@ const ChatWidget = ({ companyId }) => {
 
   useLayoutEffect(() => { scrollToBottom(); }, [messages]);
 
+  const getUserId = () => {
+    let id = initialCustomerId || localStorage.getItem("support_user_id");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("support_user_id", id);
+    }
+    return id;
+  };
+
   const initializeChat = async () => {
+    if (initializingRef.current) return;
+    initializingRef.current = true;
+
     try {
-      let userId = localStorage.getItem("support_user_id");
-      if (!userId) {
-        userId = crypto.randomUUID();
-        localStorage.setItem("support_user_id", userId);
-      }
+      const userId = getUserId();
 
+      // Init customer session — backend returns widgetToken for socket auth
       const initResponse = await customerAPI.init({ userId, companyId });
-      const resolvedCompanyId = initResponse.data.companyId;
+      const { companyId: resolvedCompanyId, widgetToken } = initResponse.data;
 
-      const response = await chatAPI.createChat({ userId, companyId: resolvedCompanyId });
-      const { chat } = response.data;
-      setChatId(chat._id);
-      setChatMode(chat.mode);
-      setAssignedAgent(chat.assignedAgentId);
+      // ── Check for existing open chat before creating a new one ──
+      let existingChatId = null;
+      let initialMessages = [];
+      let mode = "ai";
+      let status = "open";
+      let assignedAgentInfo = null;
 
-      if (chat.messages && chat.messages.length > 0) {
-        setMessages(chat.messages);
-        scrollToBottom();
-      } else if (chat.mode === "ai" && chat.status === "open") {
-        setMessages([
-          {
-            senderRole: "ai",
-            text: "Hi! I'm your AI support assistant. Ask me anything — and just say \"talk to a human\" any time you'd like an agent.",
-            createdAt: new Date(),
-          },
-        ]);
+      try {
+        const existingChats = await chatAPI.getUserChats(userId, resolvedCompanyId);
+        const openChat = existingChats.data.chats?.find(c => c.status === "open");
+        if (openChat) {
+          existingChatId = openChat._id;
+          // Fetch messages for the existing chat
+          const chatData = await chatAPI.getChat(openChat._id, userId);
+          initialMessages = chatData.data.messages || [];
+          mode = chatData.data.chat?.mode || "ai";
+          status = chatData.data.chat?.status || "open";
+          assignedAgentInfo = chatData.data.chat?.assignedAgentId || null;
+        }
+      } catch (e) {
+        // No existing chats or fetch failed — we'll create a new one
       }
 
-      const newSocket = io("http://localhost:5000", { transports: ["websocket"], reconnection: true });
+      // Create new chat only if no existing open chat found
+      if (!existingChatId) {
+        const response = await chatAPI.createChat({ userId, companyId: resolvedCompanyId });
+        const { chat } = response.data;
+        existingChatId = chat._id;
+        initialMessages = chat.messages || [];
+        mode = chat.mode;
+        status = chat.status;
+        assignedAgentInfo = chat.assignedAgentId;
+      }
+
+      setChatId(existingChatId);
+      setChatMode(mode);
+      setChatStatus(status);
+      setAssignedAgent(assignedAgentInfo);
+
+      if (initialMessages.length > 0) {
+        setMessages(initialMessages);
+      } else if (mode === "ai" && status === "open") {
+        setMessages([{
+          senderRole: "ai",
+          text: "Hi! I'm your AI support assistant. Ask me anything — and just say \"talk to a human\" any time you'd like an agent.",
+          createdAt: new Date(),
+        }]);
+      }
+
+      // ── Connect socket with widget auth token ──
+      const newSocket = io(SOCKET_URL, {
+        transports: ["websocket"],
+        reconnection: true,
+        auth: {
+          token: widgetToken,
+          role: "customer"
+        }
+      });
+
       setSocket(newSocket);
 
-      newSocket.on("connect", () => newSocket.emit("joinChat", { chatId: chat._id, userId }));
-      if (newSocket.connected) newSocket.emit("joinChat", { chatId: chat._id, userId });
+      const joinChat = () => newSocket.emit("joinChat", { chatId: existingChatId, userId });
+
+      newSocket.on("connect", joinChat);
+      if (newSocket.connected) joinChat();
+
+      newSocket.on("connect_error", (err) => {
+        console.error("[Widget] Socket connection error:", err.message);
+      });
 
       newSocket.on("chatHistory", ({ messages: history }) => {
-        if (Array.isArray(history)) { setMessages(history); scrollToBottom(); }
+        if (Array.isArray(history) && history.length > 0) {
+          setMessages(history);
+          scrollToBottom();
+        }
       });
 
       newSocket.on("receiveMessage", ({ message }) => {
@@ -81,24 +155,32 @@ const ChatWidget = ({ companyId }) => {
         setAssignedAgent(agentName);
       });
 
+      newSocket.on("chatClosed", () => {
+        setChatStatus("closed");
+      });
+
       newSocket.on("userTyping", ({ userId: typingUserId, isTyping }) => {
-        const currentUserId = localStorage.getItem("support_user_id");
-        if (typingUserId !== currentUserId) setIsTyping(isTyping);
+        if (typingUserId !== getUserId()) setIsTyping(isTyping);
       });
 
       newSocket.on("aiTyping", ({ chatId: socketChatId, isTyping }) => {
-        if (socketChatId === chat._id) setIsTyping(isTyping);
+        if (socketChatId === existingChatId || socketChatId === existingChatId?.toString()) {
+          setIsTyping(isTyping);
+        }
       });
 
-      newSocket.on("error", ({ message }) => console.error("Socket error:", message));
+      newSocket.on("error", ({ message }) => console.error("[Widget] Socket error:", message));
+
     } catch (error) {
-      console.error("Failed to initialize chat:", error);
+      console.error("[Widget] Failed to initialize chat:", error);
+    } finally {
+      initializingRef.current = false;
     }
   };
 
   const sendMessage = () => {
-    if (!inputText.trim() || !socket || !chatId) return;
-    const userId = localStorage.getItem("support_user_id");
+    if (!inputText.trim() || !socket || !chatId || chatStatus === "closed") return;
+    const userId = getUserId();
     socket.emit("sendMessage", { chatId, senderId: userId, senderRole: "customer", text: inputText.trim() });
     setInputText("");
     socket.emit("typing", { chatId, userId, isTyping: false });
@@ -113,21 +195,13 @@ const ChatWidget = ({ companyId }) => {
 
   const handleTyping = () => {
     if (socket && chatId) {
-      const userId = localStorage.getItem("support_user_id");
-      socket.emit("typing", { chatId, userId, isTyping: true });
+      socket.emit("typing", { chatId, userId: getUserId(), isTyping: true });
     }
   };
 
-  const closeChat = () => {
-    if (socket) {
-      socket.disconnect();
-      setSocket(null);
-    }
+  const closeWidget = () => {
     setIsOpen(false);
-    setMessages([]);
-    setChatId(null);
-    setChatMode("ai");
-    setAssignedAgent(null);
+    setIsTyping(false);
   };
 
   const formatTime = (date) =>
@@ -136,11 +210,11 @@ const ChatWidget = ({ companyId }) => {
   const isHuman = chatMode === "human";
 
   return (
-    <>
+    <div className={standalone ? "w-full h-full relative" : ""}>
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 w-14 h-14 rounded-full z-50 flex items-center justify-center shadow-2xl btn-accent transition-transform hover:scale-105 active:scale-95"
+          className={`${standalone ? 'absolute bottom-0 right-0' : 'fixed bottom-6 right-6'} w-14 h-14 rounded-full z-50 flex items-center justify-center shadow-2xl btn-accent transition-transform hover:scale-105 active:scale-95`}
           aria-label="Open chat"
         >
           <MessageCircle className="h-6 w-6" />
@@ -149,7 +223,7 @@ const ChatWidget = ({ companyId }) => {
 
       {isOpen && (
         <div
-          className="glass-strong fixed bottom-6 right-6 w-[380px] h-[540px] rounded-3xl z-50 flex flex-col overflow-hidden animate-scale-in"
+          className={`glass-strong ${standalone ? 'w-full h-full' : 'fixed bottom-6 right-6 w-[380px] h-[540px]'} rounded-3xl z-50 flex flex-col overflow-hidden animate-scale-in`}
           style={{ transformOrigin: "bottom right" }}
         >
           {/* Header */}
@@ -176,7 +250,7 @@ const ChatWidget = ({ companyId }) => {
                 </p>
               </div>
             </div>
-            <button onClick={closeChat} className="text-slate-400 hover:text-slate-100 transition-colors p-1.5 rounded-lg hover:bg-white/10" aria-label="Close chat">
+            <button onClick={closeWidget} className="text-slate-400 hover:text-slate-100 transition-colors p-1.5 rounded-lg hover:bg-white/10" aria-label="Close chat">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -229,12 +303,13 @@ const ChatWidget = ({ companyId }) => {
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyPress={handleKeyPress}
                 onInput={handleTyping}
-                placeholder="Type a message…"
-                className="flex-1 bg-transparent px-3 py-1.5 text-[13px] text-slate-100 placeholder:text-slate-500 outline-none"
+                disabled={chatStatus === "closed"}
+                placeholder={chatStatus === "closed" ? "This chat has been closed." : "Type a message…"}
+                className="flex-1 bg-transparent px-3 py-1.5 text-[13px] text-slate-100 placeholder:text-slate-500 outline-none disabled:opacity-50"
               />
               <button
                 onClick={sendMessage}
-                disabled={!inputText.trim()}
+                disabled={!inputText.trim() || chatStatus === "closed"}
                 className="btn-accent rounded-xl w-9 h-9 flex items-center justify-center disabled:opacity-40"
                 aria-label="Send"
               >
@@ -247,7 +322,7 @@ const ChatWidget = ({ companyId }) => {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };
 

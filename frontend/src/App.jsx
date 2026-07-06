@@ -3,8 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { useState, useEffect } from 'react';
 import Home from './pages/Home';
 import Login from './components/Login';
-import Register from './components/Register';
 import Dashboard from './pages/Dashboard';
+import CompanySetup from './pages/CompanySetup';
 
 // Protected Route component
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
@@ -64,7 +64,7 @@ function App() {
           {/* Public routes */}
           <Route path="/" element={<Home user={user} onLogout={handleLogout} />} />
           <Route path="/login" element={<Login setUser={setUser} />} />
-          <Route path="/register" element={<Register setUser={setUser} />} />
+          <Route path="/company-setup" element={<CompanySetup />} />
           
           {/* Protected routes */}
           <Route 
@@ -76,10 +76,35 @@ function App() {
             } 
           />
           
-          {null}
+          <Route path="/widget" element={<WidgetRoute />} />
         </Routes>
       </div>
     </Router>
+  );
+}
+
+// Standalone route for iframe embed
+import { useSearchParams } from 'react-router-dom';
+import ChatWidget from './components/ChatWidget';
+
+function WidgetRoute() {
+  const [searchParams] = useSearchParams();
+  const companyId = searchParams.get('companyId');
+  const customerId = searchParams.get('customerId');
+  
+  useEffect(() => {
+    document.documentElement.classList.add('widget-mode');
+    return () => document.documentElement.classList.remove('widget-mode');
+  }, []);
+
+  if (!companyId) {
+    return <div className="text-white text-xs p-4">Missing companyId</div>;
+  }
+  
+  return (
+    <div className="w-screen h-screen overflow-hidden bg-transparent">
+      <ChatWidget companyId={companyId} initialCustomerId={customerId} standalone={true} />
+    </div>
   );
 }
 

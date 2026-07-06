@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { io } from "socket.io-client";
 import { chatAPI } from "../api/api";
+import api from "../api/api";
 import LeftSidebar from "./LeftSidebar";
 import ChatPanel from "./ChatPanel";
 import RightPanel from "./RightPanel";
 import { Bell, AlertTriangle, LogOut, ShieldCheck, X } from "lucide-react";
+
+// Socket URL from env — set VITE_SOCKET_URL in frontend/.env for production
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || window.location.origin;
 
 const AgentDashboard = ({ user, onLogout }) => {
   const [selectedChat, setSelectedChat] = useState(null);
@@ -14,10 +18,54 @@ const AgentDashboard = ({ user, onLogout }) => {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [joinedAgents, setJoinedAgents] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Initialize socket connection
+  // Debounce timer ref for sidebar refresh
+  const refreshDebounceRef = useRef(null);
+  // Ref to access latest selectedChat inside socket callbacks without re-registering
+  const selectedChatRef = useRef(selectedChat);
+  useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
+
+  // ── Fetch persisted notifications on mount ──
   useEffect(() => {
-    const newSocket = io("http://localhost:5000", { transports: ["websocket"], reconnection: true });
+    const fetchNotifications = async () => {
+      try {
+        const res = await api.get('/notifications?unreadOnly=true');
+        const fetched = res.data.notifications.map(n => ({
+          id: n._id,
+          type: 'escalation',
+          message: n.payload?.message || `Escalation for chat ${n.chatId?._id || n.chatId}`,
+          chatId: n.chatId?._id || n.chatId,
+          timestamp: new Date(n.createdAt),
+          persisted: true
+        }));
+        setNotifications(fetched);
+      } catch (err) {
+        console.error('[AgentDashboard] Failed to fetch notifications:', err.message);
+      }
+    };
+    fetchNotifications();
+  }, []);
+
+  // ── Debounced sidebar refresh ──
+  const triggerRefresh = useCallback(() => {
+    if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
+    refreshDebounceRef.current = setTimeout(() => {
+      setRefreshTrigger(prev => prev + 1);
+    }, 500); // Collapse rapid chatUpdated events into one refresh
+  }, []);
+
+  // ── Initialize socket connection ──
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const newSocket = io(SOCKET_URL, {
+      transports: ["websocket"],
+      reconnection: true,
+      auth: {
+        token,
+        role: user.role // 'agent' or 'superuser'
+      }
+    });
     setSocket(newSocket);
 
     const joinAgents = () => {
@@ -27,37 +75,49 @@ const AgentDashboard = ({ user, onLogout }) => {
     newSocket.on("connect", joinAgents);
     if (newSocket.connected) joinAgents();
 
+    newSocket.on("connect_error", (err) => {
+      console.error("[AgentDashboard] Socket auth error:", err.message);
+    });
+
     newSocket.on("joinedAgents", () => {
       setJoinedAgents(true);
     });
 
     newSocket.on("error", (error) => {
-      console.error("[socket error]", error);
+      console.error("[AgentDashboard] Socket error:", error);
     });
 
-    newSocket.on("escalationRequest", (data) => {
+    // Named handler for escalation — so we can clean it up precisely
+    const handleEscalation = (data) => {
       const notification = {
-        id: Date.now(),
+        id: data.notificationId || Date.now(),
         type: "escalation",
         message: data.message || `Customer requested a human in chat ${data.chatId}`,
         chatId: data.chatId,
         timestamp: new Date(),
+        persisted: true
       };
-      setNotifications((prev) => [notification, ...prev]);
-    });
+      setNotifications((prev) => {
+        // Avoid duplicates (if already fetched from DB on mount)
+        const exists = prev.some(n => n.id === notification.id);
+        return exists ? prev : [notification, ...prev];
+      });
+    };
 
-    newSocket.on("chatTaken", (data) => {
-      if (data.agentId === user._id) {
-        // handled by LeftSidebar refresh
-      }
-    });
+    const handleChatUpdated = () => triggerRefresh();
+
+    newSocket.on("escalationRequest", handleEscalation);
+    newSocket.on("chatUpdated", handleChatUpdated);
 
     return () => {
+      newSocket.off("escalationRequest", handleEscalation);
+      newSocket.off("chatUpdated", handleChatUpdated);
+      newSocket.off("connect", joinAgents);
       newSocket.disconnect();
     };
-  }, [user._id]);
+  }, [user._id, user.role, triggerRefresh]);
 
-  // Join/leave selected chat room
+  // ── Join/leave selected chat room ──
   useEffect(() => {
     if (!socket) return;
 
@@ -76,6 +136,33 @@ const AgentDashboard = ({ user, onLogout }) => {
       socket.off("connect", joinRoom);
     };
   }, [socket, selectedChat?._id, user._id]);
+
+  // ── Listen for new messages and typing (named handlers for proper cleanup) ──
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleReceive = ({ message, chatId }) => {
+      const current = selectedChatRef.current;
+      if (current && chatId === current._id?.toString()) {
+        setMessages((prev) => [...prev, message]);
+        if (current.status !== "open") {
+          setSelectedChat((prev) => ({ ...prev, status: "open" }));
+        }
+      }
+    };
+
+    const handleTyping = ({ userId, isTyping }) => {
+      if (selectedChatRef.current && userId !== user._id) setIsTyping(isTyping);
+    };
+
+    socket.on("receiveMessage", handleReceive);
+    socket.on("userTyping", handleTyping);
+
+    return () => {
+      socket.off("receiveMessage", handleReceive);
+      socket.off("userTyping", handleTyping);
+    };
+  }, [socket, user._id]);
 
   const handleChatSelect = async (chat) => {
     setSelectedChat(chat);
@@ -141,33 +228,32 @@ const AgentDashboard = ({ user, onLogout }) => {
     }
   };
 
-  // Listen for new messages
-  useEffect(() => {
-    if (socket) {
-      const handleReceive = ({ message, chatId }) => {
-        if (selectedChat && chatId === selectedChat._id) {
-          setMessages((prev) => [...prev, message]);
-          if (selectedChat.status !== "open") {
-            setSelectedChat((prev) => ({ ...prev, status: "open" }));
-          }
-        }
-      };
-      const handleTyping = ({ userId, isTyping }) => {
-        if (selectedChat && userId !== user._id) setIsTyping(isTyping);
-      };
-      socket.on("receiveMessage", handleReceive);
-      socket.on("userTyping", handleTyping);
-    }
-    return () => {
-      if (socket) {
-        socket.off("receiveMessage");
-        socket.off("userTyping");
+  // ── Notification management (mark as read on click) ──
+  const clearNotification = async (notification) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+    // Persist read state if it came from the backend
+    if (notification.persisted) {
+      try {
+        await api.put(`/notifications/${notification.id}/read`);
+      } catch (e) {
+        console.error('[AgentDashboard] Failed to mark notification read:', e.message);
       }
-    };
-  }, [socket, selectedChat?._id, user._id]);
+    }
+  };
 
-  const clearNotification = (id) => setNotifications((prev) => prev.filter((n) => n.id !== id));
-  const clearAllNotifications = () => setNotifications([]);
+  const clearAllNotifications = async () => {
+    setNotifications([]);
+    try {
+      await api.put('/notifications/read-all');
+    } catch (e) {
+      console.error('[AgentDashboard] Failed to mark all notifications read:', e.message);
+    }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    await openChatById(notification.chatId);
+    clearNotification(notification);
+  };
 
   return (
     <div className="h-screen flex flex-col text-slate-100">
@@ -235,7 +321,7 @@ const AgentDashboard = ({ user, onLogout }) => {
                         <div
                           key={notification.id}
                           className="p-3 hover:bg-white/5 cursor-pointer transition-colors"
-                          onClick={() => openChatById(notification.chatId)}
+                          onClick={() => handleNotificationClick(notification)}
                         >
                           <div className="flex items-start gap-3">
                             <div className="badge-human rounded-lg p-1.5 flex-shrink-0">
@@ -248,7 +334,7 @@ const AgentDashboard = ({ user, onLogout }) => {
                               </p>
                             </div>
                             <button
-                              onClick={(e) => { e.stopPropagation(); clearNotification(notification.id); }}
+                              onClick={(e) => { e.stopPropagation(); clearNotification(notification); }}
                               className="text-slate-500 hover:text-slate-200 transition-colors"
                               aria-label="Dismiss"
                             >
@@ -278,7 +364,12 @@ const AgentDashboard = ({ user, onLogout }) => {
 
       {/* Three-pane workspace */}
       <div className="flex-1 flex overflow-hidden gap-px bg-white/5">
-        <LeftSidebar selectedChat={selectedChat} onChatSelect={handleChatSelect} currentUser={user} />
+        <LeftSidebar
+          selectedChat={selectedChat}
+          onChatSelect={handleChatSelect}
+          currentUser={user}
+          refreshTrigger={refreshTrigger}
+        />
         <ChatPanel
           selectedChat={selectedChat}
           messages={messages}

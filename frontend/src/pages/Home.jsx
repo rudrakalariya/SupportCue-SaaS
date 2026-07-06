@@ -162,7 +162,7 @@ const Home = ({ user, onLogout }) => {
 
       <SiteFooter />
 
-      <ChatWidget companyId="demo-company" />
+      <ChatWidget companyId="6a4bad103f1b1249be0a067f" />
     </div>
   );
 };

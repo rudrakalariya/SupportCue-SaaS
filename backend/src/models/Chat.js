@@ -2,8 +2,7 @@ const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema({
   senderId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: mongoose.Schema.Types.Mixed, // String for customer, ObjectId for agent
     required: function() {
       return this.senderRole !== 'ai';
     }
@@ -26,19 +25,14 @@ const messageSchema = new mongoose.Schema({
 
 const chatSchema = new mongoose.Schema({
   customerId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    type: String,
+    required: true,
+    index: true
   },
   companyId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Company',
-    default: null,
-    index: true
-  },
-  isAnonymous: {
-    type: Boolean,
-    default: false,
+    required: true,
     index: true
   },
   assignedAgentId: {
@@ -67,13 +61,30 @@ const chatSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Method to add message and update lastInteraction
+// Compound index for efficient lookup of a customer's chats within a company
+chatSchema.index({ customerId: 1, companyId: 1 });
+chatSchema.index({ companyId: 1, status: 1, lastInteraction: -1 });
+
+/**
+ * Atomically add a message using $push — prevents race conditions when
+ * multiple messages arrive concurrently (old load-modify-save approach
+ * would silently drop messages with concurrent writes).
+ */
+chatSchema.statics.addMessageById = async function(chatId, messageData) {
+  const result = await this.findByIdAndUpdate(
+    chatId,
+    {
+      $push: { messages: messageData },
+      $set:  { lastInteraction: new Date(), status: 'open' }
+    },
+    { new: false } // We don't need the full document returned
+  );
+  return result;
+};
+
+// Convenience instance method (wraps static for backward compat)
 chatSchema.methods.addMessage = function(messageData) {
-  this.messages.push(messageData);
-  this.lastInteraction = new Date();
-  // Auto-open chat on any new message
-  this.status = 'open';
-  return this.save();
+  return this.constructor.addMessageById(this._id, messageData);
 };
 
 // Method to get last N messages
@@ -86,12 +97,26 @@ chatSchema.methods.isActive = function() {
   return this.status === 'open';
 };
 
-// Method to take over by agent
+/**
+ * Atomically take over a chat by an agent.
+ */
+chatSchema.statics.takeOverById = async function(chatId, agentId) {
+  return this.findByIdAndUpdate(
+    chatId,
+    {
+      $set: {
+        mode: 'human',
+        assignedAgentId: agentId,
+        lastInteraction: new Date()
+      }
+    },
+    { new: true }
+  );
+};
+
+// Instance method wrapper for takeOver
 chatSchema.methods.takeOver = function(agentId) {
-  this.mode = 'human';
-  this.assignedAgentId = agentId;
-  this.lastInteraction = new Date();
-  return this.save();
+  return this.constructor.takeOverById(this._id, agentId);
 };
 
 module.exports = mongoose.model('Chat', chatSchema);

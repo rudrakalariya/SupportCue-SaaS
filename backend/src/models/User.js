@@ -20,18 +20,14 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['customer', 'agent', 'superuser'],
-    default: 'customer'
+    enum: ['agent', 'superuser'],
+    default: 'agent'
   },
   companyId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Company',
     default: null
   },
-  online: {
-    type: Boolean,
-    default: false
-  }
 }, {
   timestamps: true
 });

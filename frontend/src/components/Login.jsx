@@ -176,10 +176,6 @@ const Login = ({ setUser }) => {
             </p>
           </form>
         </div>
-
-        <p className="text-center text-[11px] text-slate-500 mt-6">
-          Demo mode · use any email and password
-        </p>
       </div>
     </div>
   );

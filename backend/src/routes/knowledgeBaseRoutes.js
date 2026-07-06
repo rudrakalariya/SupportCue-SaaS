@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { auth, requireSuperuser } = require('../middleware/auth');
+const { companyAuth } = require('../middleware/auth');
 const {
   uploadDocument,
   listDocuments,
@@ -42,11 +42,11 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10 MB default limit
 });
 
-// All KB routes require superuser role
-router.post('/upload', auth, requireSuperuser, upload.single('document'), uploadDocument);
-router.get('/documents/:companyId', auth, requireSuperuser, listDocuments);
-router.get('/document/:docId', auth, requireSuperuser, getDocument);
-router.delete('/document/:docId', auth, requireSuperuser, deleteDocument);
-router.get('/search', auth, requireSuperuser, testSearch);
+// All KB routes require company authentication
+router.post('/upload', companyAuth, upload.single('document'), uploadDocument);
+router.get('/documents', companyAuth, listDocuments);
+router.get('/document/:docId', companyAuth, getDocument);
+router.delete('/document/:docId', companyAuth, deleteDocument);
+router.get('/search', companyAuth, testSearch);
 
 module.exports = router;

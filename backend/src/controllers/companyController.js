@@ -3,14 +3,27 @@ const User = require('../models/User');
 const Document = require('../models/Document');
 const DocumentChunk = require('../models/DocumentChunk');
 const mongoose = require('mongoose');
+const crypto = require('crypto');
+const config = require('../config/env');
+const emailService = require('../services/emailService');
 
 // Create a new company (superuser only)
 const createCompany = async (req, res) => {
   try {
-    const { name, systemPrompt } = req.body;
+    const { name, email, systemPrompt } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Company name is required' });
+    }
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'Company email is required' });
+    }
+
+    // Check if email is already in use
+    const existingCompany = await Company.findOne({ email: email.toLowerCase().trim() });
+    if (existingCompany) {
+      return res.status(400).json({ error: 'Company with this email already exists' });
     }
 
     // Generate slug from name
@@ -23,18 +36,40 @@ const createCompany = async (req, res) => {
       slug = `${baseSlug}-${counter++}`;
     }
 
+    // Generate Invitation Token
+    const invitationToken = crypto.randomBytes(32).toString('hex');
+    const invitationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
     const company = new Company({
       name: name.trim(),
+      email: email.toLowerCase().trim(),
       slug,
       systemPrompt: systemPrompt?.trim() || undefined,
-      createdBy: req.user._id
+      invitationToken,
+      invitationExpires
     });
 
     await company.save();
 
+    const frontendUrl = config.FRONTEND_URL || 'http://localhost:3000';
+    const invitationUrl = `${frontendUrl}/company-setup?token=${invitationToken}`;
+    
+    // Always log to console for easy local testing
+    console.log(`\n=============================================`);
+    console.log(`📧 INVITATION EMAIL TO: ${company.email}`);
+    console.log(`Your company account has been created.`);
+    console.log(`Please set your password by visiting:`);
+    console.log(invitationUrl);
+    console.log(`=============================================\n`);
+
+    // Send the actual email asynchronously
+    emailService.sendCompanyInvitation(company.email, company.name, invitationUrl)
+      .catch(err => console.error('[CompanyController] Failed to send email:', err));
+
     res.status(201).json({
-      message: 'Company created successfully',
-      company
+      message: 'Company created successfully. Invitation sent.',
+      company: company.toPublicJSON(),
+      invitationUrl // Returned for easy dev access
     });
   } catch (error) {
     console.error('Create company error:', error.message);
@@ -46,7 +81,6 @@ const createCompany = async (req, res) => {
 const listCompanies = async (req, res) => {
   try {
     const companies = await Company.find()
-      .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
 
     // Attach document counts per company
@@ -77,7 +111,7 @@ const getCompany = async (req, res) => {
       return res.status(400).json({ error: 'Invalid company ID' });
     }
 
-    const company = await Company.findById(id).populate('createdBy', 'name email');
+    const company = await Company.findById(id);
     if (!company) {
       return res.status(404).json({ error: 'Company not found' });
     }
@@ -138,8 +172,8 @@ const deleteCompany = async (req, res) => {
     await DocumentChunk.deleteMany({ companyId: id });
     await Document.deleteMany({ companyId: id });
 
-    // Unlink users from this company
-    await User.updateMany({ companyId: id }, { $set: { companyId: null } });
+    // Delete all agents associated with this company
+    await User.deleteMany({ companyId: id });
 
     await Company.findByIdAndDelete(id);
 

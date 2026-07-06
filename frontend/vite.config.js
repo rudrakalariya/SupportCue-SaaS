@@ -11,5 +11,14 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  // Environment variable prefix — all VITE_ vars are exposed to the frontend
+  // Usage: import.meta.env.VITE_SOCKET_URL
+  // Create a frontend/.env file with:
+  //   VITE_SOCKET_URL=http://localhost:5000
+  //   VITE_API_URL=/api
+  define: {
+    // Fallback values when env vars are not set
+    '__SOCKET_URL__': JSON.stringify(process.env.VITE_SOCKET_URL || '')
   }
 })

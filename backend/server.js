@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -13,95 +14,166 @@ const authRoutes = require('./src/routes/authRoutes');
 const chatRoutes = require('./src/routes/chatRoutes');
 const companyRoutes = require('./src/routes/companyRoutes');
 const knowledgeBaseRoutes = require('./src/routes/knowledgeBaseRoutes');
+const customerRoutes = require('./src/routes/customerRoutes');
+const notificationRoutes = require('./src/routes/notificationRoutes');
 
 // Import socket handler
-const ChatSocketHandler = require('./src/socket/chatSocket');
+const ChatSocketHandler = require('./src/socket');
 
 const app = express();
 const server = http.createServer(app);
 
-// Socket.IO setup
+// ── Trust proxy (needed when behind Nginx / Render / Railway / etc.) ──
+// Without this, express-rate-limit sees all requests from the proxy's IP.
+app.set('trust proxy', 1);
+
+// ── CORS origins ──
+// Dashboard origins (strict list) — from CORS_ORIGIN env var
+const dashboardOrigins = config.CORS_ORIGIN
+  ? config.CORS_ORIGIN.split(',').map(o => o.trim())
+  : ['http://localhost:3000', 'http://localhost:5173'];
+
+// Widget routes are open to ALL origins (for embedding on external sites)
+const widgetCors = cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'OPTIONS'] });
+
+// Dashboard/API cors — strict
+const dashboardCors = cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (server-to-server, Postman, curl)
+    if (!origin) return callback(null, true);
+    if (dashboardOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+});
+
+// ── Socket.IO setup ──
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:5173"], // React dev servers
-    methods: ["GET", "POST"]
+    // Widget connects from any origin; dashboard agents from known origins
+    origin: (origin, callback) => callback(null, true),
+    methods: ['GET', 'POST'],
+    credentials: false
   }
 });
 
 // Initialize socket handler
 const chatSocketHandler = new ChatSocketHandler(io);
+app.set('io', io);
 
-// Rate limiting
-const limiter = rateLimit({
+// ── Rate Limiters ──
+// Strict for auth and admin endpoints
+const strictLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please slow down.' }
 });
 
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(limiter);
+// Permissive for widget endpoints (customers send messages frequently)
+const widgetLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 60,                  // 60 req/min per IP for widget
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests from this client.' }
+});
+
+// ── Core Middleware ──
+app.use(helmet({
+  // Required for script embedding on external sites
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/chat', chatRoutes);
-app.use('/api/company', companyRoutes);
-app.use('/api/kb', knowledgeBaseRoutes);
+// ── Routes ──
+// Widget routes: open CORS + permissive rate limit (customers from external sites)
+app.use('/api/customer', widgetCors, widgetLimiter, customerRoutes);
+app.use('/api/chat', widgetCors, widgetLimiter, chatRoutes);
 
-// Health check endpoint
+// Dashboard-only routes: strict CORS + strict rate limit
+app.use('/api/auth', dashboardCors, strictLimiter, authRoutes);
+app.use('/api/company', dashboardCors, strictLimiter, companyRoutes);
+app.use('/api/kb', dashboardCors, strictLimiter, knowledgeBaseRoutes);
+app.use('/api/notifications', dashboardCors, strictLimiter, notificationRoutes);
+
+// ── Health check ──
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     timestamp: new Date().toISOString(),
     environment: config.NODE_ENV
   });
 });
 
-// Error handling middleware
+// ── Serve frontend in production ──
+if (config.NODE_ENV === 'production') {
+  const frontendDist = path.join(__dirname, '../frontend/dist');
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+}
+
+// ── Error handling middleware ──
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
+  if (err.message && err.message.startsWith('CORS:')) {
+    return res.status(403).json({ error: err.message });
+  }
+  console.error('[Server] Unhandled error:', err.message);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// 404 handler
+// ── 404 handler ──
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// Connect to database and start server
+// ── Unhandled promise rejections ──
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught Exception:', err.message);
+  process.exit(1);
+});
+
+// ── Graceful shutdown ──
+const shutdown = (signal) => {
+  console.log(`[Server] ${signal} received, shutting down gracefully...`);
+  server.close(() => {
+    console.log('[Server] HTTP server closed.');
+    process.exit(0);
+  });
+  // Force exit after 10s if shutdown hangs
+  setTimeout(() => {
+    console.error('[Server] Forced exit after timeout.');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+
+// ── Start ──
 const startServer = async () => {
   try {
     await connectDB();
-    
     server.listen(config.PORT, () => {
-      console.log(`Server running on port ${config.PORT}`);
-      console.log(`Socket.IO server initialized`);
+      console.log(`[Server] Running on port ${config.PORT} (${config.NODE_ENV})`);
+      console.log(`[Server] Socket.IO initialized`);
+      console.log(`[Server] Dashboard CORS origins: ${dashboardOrigins.join(', ')}`);
     });
-
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('[Server] Failed to start:', error.message);
     process.exit(1);
   }
 };
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    console.log('Process terminated');
-    process.exit(0);
-  });
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully');
-  server.close(() => {
-    console.log('Process terminated');
-    process.exit(0);
-  });
-});
 
 startServer();

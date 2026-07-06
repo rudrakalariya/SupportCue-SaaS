@@ -15,8 +15,28 @@ const CompanySetup = () => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
+  const [tokenValid, setTokenValid] = useState(false);
+  const [verifying, setVerifying] = useState(true);
+
   useEffect(() => {
-    if (!token) setError("Invalid or missing invitation token.");
+    if (!token) {
+      setError("Invalid or missing invitation token.");
+      setVerifying(false);
+      return;
+    }
+
+    const checkToken = async () => {
+      try {
+        await authAPI.verifyCompanyInvite(token);
+        setTokenValid(true);
+      } catch (err) {
+        setError("This invitation link has expired or has already been used.");
+      } finally {
+        setVerifying(false);
+      }
+    };
+
+    checkToken();
   }, [token]);
 
   const handleSubmit = async (e) => {
@@ -57,12 +77,20 @@ const CompanySetup = () => {
             <div className="w-8 h-1 rounded-full bg-white/15" />
           </div>
 
-          {success ? (
+          {verifying ? (
+            <div className="flex justify-center p-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--color-primary)] border-b-transparent" />
+            </div>
+          ) : success ? (
             <div className="pill-success rounded-2xl p-5 text-center inline-flex flex-col items-center gap-2 w-full">
               <CheckCircle2 className="h-6 w-6" />
               <p className="text-[14px] font-semibold">Password set successfully</p>
               <p className="text-[12px] opacity-80">Redirecting to sign-in…</p>
             </div>
+          ) : !tokenValid ? (
+             <div className="pill-error rounded-xl px-4 py-4 text-center">
+               <p className="text-[14px] font-medium text-white">{error}</p>
+             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && <div className="pill-error rounded-xl px-4 py-2.5 text-[13px]">{error}</div>}

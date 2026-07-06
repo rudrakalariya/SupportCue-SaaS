@@ -152,11 +152,18 @@ class RagService {
         console.warn(`[RAG] Atlas vector search unavailable (${atlasError.message}), using cosine similarity fallback`);
       }
 
-      // Fallback: load all chunks for the company and compute cosine similarity in-app
+      // Fallback: load chunks for the company and compute cosine similarity in-app.
+      // ⚠ CAP at 500 chunks to prevent memory exhaustion under concurrent load.
+      // For production, configure MongoDB Atlas Vector Search instead.
+      const FALLBACK_CHUNK_LIMIT = 500;
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[RAG] ⚠ Using in-memory cosine similarity fallback in PRODUCTION. Consider enabling Atlas Vector Search for better performance and scalability.`);
+      }
+
       const allChunks = await DocumentChunk.find(
         { companyId },
         { text: 1, chunkIndex: 1, documentId: 1, embedding: 1 }
-      );
+      ).limit(FALLBACK_CHUNK_LIMIT);
 
       if (allChunks.length === 0) return [];
 
